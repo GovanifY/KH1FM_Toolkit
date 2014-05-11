@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.IO;
 
@@ -43,7 +44,7 @@ namespace KH1FM_Toolkit
             if (iso.Length % 2048 != 0)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("KH1ISOReader: Warning: ISO size is not a multiple of 2048! Possibly bad rip!");
+                Console.WriteLine("ISO size isn't a multiple of 2048! Surely a bad rip!");
                 Console.ResetColor();
             }
             br = new BinaryReader(iso);
@@ -108,7 +109,7 @@ namespace KH1FM_Toolkit
                         iso.Position += 8;
                         do
                         {
-                            if (br.ReadUInt32() == 0x0393eba4)
+                            if (br.ReadUInt32() == 0x0393eba4)//Finding the size by looking into the idx
                             {
                                 iso.Position += 8;
                                 idxSize = br.ReadUInt32();
@@ -307,7 +308,7 @@ namespace KH1FM_Toolkit
         /// <returns>True if the external header used, false if internal</returns>
         public bool writeHeader(string exthead = "")
         {
-            if (iso.Length > 0) { throw new NotSupportedException("Can't write header when there's already data"); }
+            if (iso.Length > 0) { throw new NotSupportedException("Can't write header when there's already datas!"); }
             if (exthead.Length > 0 && File.Exists(exthead))
             {
                 using (var head = new BinaryReader(File.Open(exthead, FileMode.Open, FileAccess.Read, FileShare.Read)))
@@ -338,7 +339,7 @@ namespace KH1FM_Toolkit
             idxSize = (long)Math.Ceiling((decimal)entryC * 16 / 2048) * 2048;   //Round up to nearest 2048
             iso.Position += idxSize - 1; iso.WriteByte(0);
             idxEntries.Capacity = entryC;
-            idxEntries.Add(new IDXEntry(0x0393eba4U, 0, (UInt32)((idxOffset - dataOffset) / 2048), (UInt32)idxSize));
+            idxEntries.Add(new IDXEntry(0x0393eba4U, 0, (UInt32)((idxOffset - dataOffset) / 2048), (UInt32)idxSize));//kingdom.idx
             //Add IMG IDX
             headerIMGoffset = iso.Position;
             idxEntries.Add(new IDXEntry(0x0392ebe4U, 0, (UInt32)((headerIMGoffset - dataOffset) / 2048), 0));
@@ -560,8 +561,6 @@ namespace KH1FM_Toolkit
 
         /// <summary>When true, return properly as fast as possible</summary>
         volatile static bool killReceived;
-        /// <summary>Program version from MSVS "File Version"</summary>
-        static readonly string programVer = FileVersionInfo.GetVersionInfo(Assembly.GetEntryAssembly().Location).FileVersion;
         /// <summary><para>Function to handle Ctrl+C and clicking the "Close X" button</para><para>Can be added or removed as a handler as needed</para></summary>
         static readonly NativeMethods.HandlerRoutine killHandler = delegate(uint t)
         {
@@ -610,16 +609,16 @@ namespace KH1FM_Toolkit
                             KH1_Patch_Maker.Program.Mainp(args);
                             break;
                         default:
-                            if (oisoName.Length == 0 && args[i].EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
+                            if (File.Exists(args[i]))
                             {
-                                oisoName = args[i];
+                                if (args[i].EndsWith(".iso", StringComparison.InvariantCultureIgnoreCase))
+                                { oisoName = args[i]; }
                             }
                             break;
                     }
                 }
-                using (var files = new PatchManager())
+                using (var files = new PatchManager(args))
                 {
-                    Console.WriteLine("");
                     if (oisoName.Length == 0)
                     {
                         oisoName = "KHFM.ISO";
@@ -655,7 +654,6 @@ namespace KH1FM_Toolkit
                     using (var input = new KH1ISOReader(oisoName))
                     using (var output = new KH1ISOWriter(Path.ChangeExtension(oisoName,"NEW.ISO"), input, oupdateHeads))
                     {
-                        int entryC = (int)input.idxSize / 16;
                         Console.WriteLine("Adding header using {0} source", output.writeHeader(oextHead) ? "external" : "internal");
                         for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
                         {
@@ -664,7 +662,8 @@ namespace KH1FM_Toolkit
                             if (entry.hash == 0x0392ebe4) { continue; }//kingdom.img
                             if (entry.hash == 0x0393eba4)//kingdom.idx
                             {
-                                Console.WriteLine("Adding blank IDX");
+                                Console.WriteLine("[KINGDOM: {0}/{1}] KINGDOM.IDX", number, input.idxEntries.Count - 1);//-1 'cause of the file KINGDOM.IMG
+                                number++;
                                 output.writeDummyIDX(idxC);
                                 continue;
                             }
@@ -679,21 +678,22 @@ namespace KH1FM_Toolkit
                                 {
                                     if (flags != 0)
                                     {
-                                        Console.Write("Relinking {0} to ", name);
+                                        Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tRelinking...", number, input.idxEntries.Count - 1, name);//-1 'cause of the file KINGDOM.IMG
+                                        number++;
                                         if (!HashList.pairs.TryGetValue(flags, out name)) { name = String.Format("@noname/{0:x8}.bin", flags); }
                                         Console.WriteLine("{0}", name);
                                         output.addRelink(entry.hash, flags);
                                     }
                                     else
                                     {
-                                        Console.WriteLine("[KINGDOM: {0}/{1}] {2}", number, entryC, name);
+                                        Console.WriteLine("[KINGDOM: {0}/{1}] {2}", number, input.idxEntries.Count - 1, name);//-1 'cause of the file KINGDOM.IMG
                                         number++;
                                         output.copyFile(entry);
                                     }
                                 }
                                 else
                                 {
-                                    Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tPatching...", number, entryC, name);
+                                    Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tPatching...", number, input.idxEntries.Count, name);//-1 'cause of the file KINGDOM.IMG
                                     number++;
                                     if (flags == 0 && ((ocompress && (entry.flags & 0x01) == 1) || entry.hash == 0x0000171d))   //Older versions + the fallback method find the IDX via compressed pi00_04.bin entry
                                     {

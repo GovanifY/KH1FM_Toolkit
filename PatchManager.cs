@@ -89,27 +89,35 @@ namespace KH1FM_Toolkit
         private List<BinaryReader> patches = new List<BinaryReader>();
         private Dictionary<uint, Tuple<int, long>> patchedFiles = new Dictionary<uint, Tuple<int, long>>();
         private string rawSearch;
-        public PatchManager(string path=".", string looseSearchPath="import/")
+        public PatchManager(string[] files)
         {
-            rawSearch = looseSearchPath;
-            if (path.Length != 0)
             {
-                string[] files = Directory.GetFiles(path, "*.kh1patch", SearchOption.TopDirectoryOnly);
                 patches.Capacity = files.Length;
                 foreach (string s in files)
                 {
                     BinaryReader file = null;
                     try
                     {
-                        file = new BinaryReader(File.Open(s, FileMode.Open, FileAccess.Read, FileShare.Read));
-                        string author; UInt32 version;
-                        if (file.BaseStream.Length < 29 || file.ReadUInt32() != 0x5031484B || parsePatch(file, patches.Count, out author, out version) == 0) { throw new Exception("Invalid or empty patch file"); }
-                        patches.Add(file);
-                        Console.WriteLine("Loaded {0} version {1} by {2}", s, version, author);
+                        if (s.EndsWith(".kh1patch", StringComparison.InvariantCultureIgnoreCase))
+                        {
+                            file = new BinaryReader(File.Open(s, FileMode.Open, FileAccess.Read, FileShare.Read));
+                            string author;
+                            UInt32 version;
+                            if (file.BaseStream.Length < 29 || file.ReadUInt32() != 0x5031484B ||
+                                parsePatch(file, patches.Count, out author, out version) == 0)
+                            {
+                                throw new Exception("Invalid or empty patch file");
+                            }
+                            patches.Add(file);
+                            string patchname = Path.GetFileName(s);
+                            Console.ForegroundColor = ConsoleColor.Cyan;
+                            Console.WriteLine("Loading patch {0} version {1} by {2}\n", patchname, version, author);
+                            Console.ResetColor();
+                        }
                     }
                     catch (Exception e)
                     {
-                        Console.WriteLine("Failed to open patch file {0}: {1}", s, e.Message);
+                        Console.WriteLine("Failed to open patch file {0}: {1}\n", s, e.Message);
                         if (file != null) { file.Close(); }
                     }
                 }
