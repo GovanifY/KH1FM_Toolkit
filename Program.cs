@@ -552,6 +552,7 @@ namespace KH1FM_Toolkit
     }
     class Program
     {
+        private static bool _advanced;
         public static void WriteWarning(string format, params object[] arg)
         {
             Console.ForegroundColor = ConsoleColor.Red;
@@ -607,7 +608,7 @@ namespace KH1FM_Toolkit
                                             }
                                             else
                                             {
-                                                Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tPatching...", number, input.idxEntries.Count, name);//-1 'cause of the file KINGDOM.IMG
+                                                Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tPatching...", number, input.idxEntries.Count - 1, name);//-1 'cause of the file KINGDOM.IMG
                                                 number++;
                                                 if (flags == 0 && ((ocompress && (entry.flags & 0x01) == 1) || entry.hash == 0x0000171d))   //Older versions + the fallback method find the IDX via compressed pi00_04.bin entry
                                                 {
@@ -686,7 +687,38 @@ namespace KH1FM_Toolkit
             }
             return false;
         };
-        private static void ExtractISO(string iso2, string tfolder = "export/")
+        private static void ExtractIDX(KH1ISOReader input,IDXFile idx, Stream img, bool recurse = false, string tfolder = "export/",
+    string name = "")
+        {
+            for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
+                                    {
+                                        IDXEntry entry = input.idxEntries[i];
+                                        string name2;
+                                        string filename;
+                                        if (!HashList.pairs.TryGetValue(entry.hash, out name2)) { name = String.Format("@noname/{0:x8}.bin", entry.hash); }
+                                            var idxs = new List<Tuple<IDXFile, string>>();
+                                                if (_advanced)
+                                                {
+                                                    Console.WriteLine("-----------File {0,4}/{1}, using KINGDOM.IDX\n", i, input.idxEntries.Count - 1);
+                                                    Console.WriteLine("Hashed filename: {0}", entry.hash);
+                                                    Console.WriteLine("Compression flags: {0}", entry.flags);
+                                                    Console.WriteLine("Size (packed): {0}", entry.size);
+                                                    Console.WriteLine("Real name: {0}", name2);
+                                                }
+                                                else
+                                                {
+                                                    Console.WriteLine("[KINGDOM: {0,4}/{1}]\tExtracting {2}", i, input.idxEntries.Count - 1, name2);
+                                                }
+                                                filename = Path.GetFullPath(tfolder + name2);
+                                                Directory.CreateDirectory(Path.GetDirectoryName(filename));
+                                                using (var output = new FileStream(filename, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+                                                {
+                                                    bool adSize = _advanced;
+                                                    //imgf.ReadFile(entry, output, adSize);
+                                                }
+                                            }
+        }
+        private static void ExtractISO(string iso2, KH1ISOReader input, string tfolder = "export/")
         {
             FileStream isofile = new FileStream(iso2, FileMode.Open, FileAccess.Read);
             using (var iso = new ISOFileReader(isofile))
@@ -765,6 +797,9 @@ namespace KH1FM_Toolkit
                         case "-extractor":
                             extract = true;
                             break;
+                        case "-advancedinfo":
+                            _advanced = true;
+                            break;
 #if DEBUG
                         case "-noupisohead": oupdateHeads = false; break;
                         case "-externalhead":
@@ -828,7 +863,7 @@ namespace KH1FM_Toolkit
                 NativeMethods.SetConsoleCtrlHandler(killHandler, true);
                 using (var input = new KH1ISOReader(iso))
                 {
-                    if (extract) { ExtractISO(iso); }
+                    if (extract) { ExtractISO(iso, input); }
                     else
                     {
                             try
