@@ -695,7 +695,7 @@ namespace KH1FM_Toolkit
                                         IDXEntry entry = input.idxEntries[i];
                                         string name2;
                                         string filename;
-                                        if (!HashList.pairs.TryGetValue(entry.hash, out name2)) { name = String.Format("@noname/{0:x8}.bin", entry.hash); }
+                                        if (!HashList.pairs.TryGetValue(entry.hash, out name2)) { name2 = String.Format("@noname/{0:x8}.bin", entry.hash); }
                                             var idxs = new List<Tuple<IDXFile, string>>();
                                                 if (_advanced)
                                                 {
@@ -709,7 +709,7 @@ namespace KH1FM_Toolkit
                                                 {
                                                     Console.WriteLine("[KINGDOM: {0,4}/{1}]\tExtracting {2}", i, input.idxEntries.Count - 1, name2);
                                                 }
-                                                filename = tfolder + name2;
+                                                filename = tfolder + "/KINGDOM/" + name2;
                                                 Directory.CreateDirectory(Path.GetDirectoryName(filename));
                                                 using (var output = new FileStream(filename, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
                                                 {
@@ -757,10 +757,7 @@ namespace KH1FM_Toolkit
                         iso.CopyFile(file, output);
                     }
                 }
-                for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
-                {
                     ExtractIDX(input, true); //, tfolder + "" + idxnames[i] + "/", idxnames[i]
-                }
             }
         }
         static void Main(string[] args)
