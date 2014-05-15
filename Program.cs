@@ -687,7 +687,7 @@ namespace KH1FM_Toolkit
             }
             return false;
         };
-        private static void ExtractIDX(KH1ISOReader input,IDXFile idx, Stream img, bool recurse = false, string tfolder = "export/",
+        private static void ExtractIDX(KH1ISOReader input, bool recurse = false, string tfolder = "export/",
     string name = "")
         {
             for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
@@ -709,7 +709,7 @@ namespace KH1FM_Toolkit
                                                 {
                                                     Console.WriteLine("[KINGDOM: {0,4}/{1}]\tExtracting {2}", i, input.idxEntries.Count - 1, name2);
                                                 }
-                                                filename = Path.GetFullPath(tfolder + name2);
+                                                filename = tfolder + name2;
                                                 Directory.CreateDirectory(Path.GetDirectoryName(filename));
                                                 using (var output = new FileStream(filename, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
                                                 {
@@ -723,17 +723,16 @@ namespace KH1FM_Toolkit
             FileStream isofile = new FileStream(iso2, FileMode.Open, FileAccess.Read);
             using (var iso = new ISOFileReader(isofile))
             {
-                var idxs = new List<IDXEntry>();
                 var idxnames = new List<string>();
-                int i = 0;
+                var a = 0;
                 foreach (FileDescriptor file in iso)
                 {
-                    ++i;
+                    a++;
                     string filename = file.FullName;
                     if (filename.EndsWith(".IDX"))
                     {
                         //KH1ISOReader();
-                        //idxs.Add(new IDXFile(iso.GetFileStream(file)));
+                        //idxs.Add(iso.GetFileStream(file));
                         //idxnames.Add(Path.GetFileNameWithoutExtension(filename));
                         //continue;
                         //Write the IDX too
@@ -742,7 +741,7 @@ namespace KH1FM_Toolkit
                     {
                         continue;
                     }
-                    Console.WriteLine("[ISO: {0,3}]\tExtracting {1}", i, filename);
+                    Console.WriteLine("[ISO: {0,3}]\tExtracting {1}", a, filename);
                     filename = Path.GetFullPath(tfolder + "ISO/" + filename);
                     try
                     {
@@ -758,20 +757,9 @@ namespace KH1FM_Toolkit
                         iso.CopyFile(file, output);
                     }
                 }
-                for (i = 0; i < idxs.Count; ++i)
+                for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
                 {
-                    try
-                    {
-                        FileDescriptor file = iso.FindFile(idxnames[i] + ".IMG");
-                        using (GovanifY.Utility.Substream img = iso.GetFileStream(file))
-                        {
-                            //ExtractIDX(idxs[i], img, true, tfolder + "" + idxnames[i] + "/", idxnames[i]);
-                        }
-                    }
-                    catch (FileNotFoundException)
-                    {
-                        WriteError("ERROR: Failed to find matching IMG for IDX");
-                    }
+                    ExtractIDX(input, true); //, tfolder + "" + idxnames[i] + "/", idxnames[i]
                 }
             }
         }
