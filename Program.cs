@@ -5,9 +5,31 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.IO;
+using ISO_Tools;
 
 namespace KH1FM_Toolkit
 {
+    internal class IDXFile
+    {
+        private BinaryReader file;
+        public uint Count { get; private set; }
+        public uint Position { get; private set; }
+        public IDXFile(Stream input, bool newidx = false, bool leaveOpen = false)
+        {
+            file = new BinaryReader(input);
+            input.Position = 0;
+            if (newidx)
+            {
+                Count = 0;
+                input.Write(new byte[] { 0, 0, 0, 0 }, 0, 4);
+            }
+            else
+            {
+                Count = file.ReadUInt32();
+            }
+            Position = 0;
+        }
+    }
     public class IDXEntry
     {
         public UInt32 hash,flags,LBA,size;
@@ -530,6 +552,19 @@ namespace KH1FM_Toolkit
     }
     class Program
     {
+        public static void WriteWarning(string format, params object[] arg)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine(format, arg);
+            Console.ResetColor();
+        }
+        public static void WriteError(string format, params object[] arg)
+        {
+            WriteWarning(format, arg);
+            //Let the user see the error
+            Console.Write(@"Press enter to continue anyway... ");
+            Console.ReadLine();
+        }
         private static void PatchISO(KH1ISOReader input, KH1ISOWriter output, PatchManager files, bool ocompress, string oextHead)
         {
             int number = 1;
@@ -651,6 +686,63 @@ namespace KH1FM_Toolkit
             }
             return false;
         };
+        private static void ExtractISO(string iso2, string tfolder = "export/")
+        {
+            FileStream isofile = new FileStream(iso2, FileMode.Open, FileAccess.Read);
+            using (var iso = new ISOFileReader(isofile))
+            {
+                var idxs = new List<IDXEntry>();
+                var idxnames = new List<string>();
+                int i = 0;
+                foreach (FileDescriptor file in iso)
+                {
+                    ++i;
+                    string filename = file.FullName;
+                    if (filename.EndsWith(".IDX"))
+                    {
+                        //KH1ISOReader();
+                        //idxs.Add(new IDXFile(iso.GetFileStream(file)));
+                        //idxnames.Add(Path.GetFileNameWithoutExtension(filename));
+                        //continue;
+                        //Write the IDX too
+                    }
+                    else if (filename.EndsWith(".IMG") && idxnames.Contains(Path.GetFileNameWithoutExtension(filename)))
+                    {
+                        continue;
+                    }
+                    Console.WriteLine("[ISO: {0,3}]\tExtracting {1}", i, filename);
+                    filename = Path.GetFullPath(tfolder + "ISO/" + filename);
+                    try
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(filename));
+                    }
+                    catch (IOException e)
+                    {
+                        WriteError("Failed creating directory: {0}", e.Message);
+                        continue;
+                    }
+                    using (var output = new FileStream(filename, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+                    {
+                        iso.CopyFile(file, output);
+                    }
+                }
+                for (i = 0; i < idxs.Count; ++i)
+                {
+                    try
+                    {
+                        FileDescriptor file = iso.FindFile(idxnames[i] + ".IMG");
+                        using (GovanifY.Utility.Substream img = iso.GetFileStream(file))
+                        {
+                            //ExtractIDX(idxs[i], img, true, tfolder + "" + idxnames[i] + "/", idxnames[i]);
+                        }
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        WriteError("ERROR: Failed to find matching IMG for IDX");
+                    }
+                }
+            }
+        }
         static void Main(string[] args)
         {
             bool obatch = false;
@@ -736,7 +828,7 @@ namespace KH1FM_Toolkit
                 NativeMethods.SetConsoleCtrlHandler(killHandler, true);
                 using (var input = new KH1ISOReader(iso))
                 {
-                    if (extract) { /*TODO Implement extraction*/}
+                    if (extract) { ExtractISO(iso); }
                     else
                     {
                             try

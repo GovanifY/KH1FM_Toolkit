@@ -51,7 +51,10 @@
     <Reference Include="System.Core" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="GY_BinaryStream.cs" />
+    <Compile Include="GY_Substream.cs" />
     <Compile Include="Hashlist.cs" />
+    <Compile Include="ISO.cs" />
     <Compile Include="ISOParser\EndianBitConverter.cs" />
     <Compile Include="ISOParser\ISODirectoryNode.cs" />
     <Compile Include="ISOParser\ISOFile.cs" />

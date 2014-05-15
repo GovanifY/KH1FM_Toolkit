@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace KHCompress
 {
@@ -113,5 +114,57 @@ namespace KHCompress
             Console.WriteLine("  Compressed to {0:0%} of the original size!", (double)i / input.Length);
             return output;
         }
+
+                public static byte[] decompress(byte[] input, uint uSize)
+        {
+#if NODECOMPRESS
+            return input;
+        }
     }
 }
+#else
+            if (input.LongLength > uint.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException("data", "Array to large to handle");
+            }
+            var inputOffset = (uint) input.LongLength;
+            // Can be buffered with NULLs at the end
+            while (input[--inputOffset] == 0)
+            {
+            }
+            byte magic = input[inputOffset];
+#if DEBUG
+            uint outputOffset =
+                BitConverter.ToUInt32(
+                    new[] {input[--inputOffset], input[--inputOffset], input[--inputOffset], input[--inputOffset]}, 0);
+            Debug.WriteLineIf(outputOffset != uSize,
+                "Got size " + uSize + "from IDX, but " + outputOffset + " internally");
+            outputOffset = uSize;
+#else
+    // KH2 internally skips the 4 "size" bytes and uses what the IDX says
+            inputOffset -= 4;
+            uint outputOffset = uSize;
+#endif
+            var output = new byte[outputOffset];
+            while (inputOffset > 0 /* && outputOffset > 0*/)
+                //I could check for outputOffset too, but if it goes below 0 the file is probably corrupt. Let the caller handle that.
+            {
+                byte c = input[--inputOffset], offset;
+                if (c == magic && (offset = input[--inputOffset]) != 0)
+                {
+                    int count = input[--inputOffset] + 3;
+                    while (--count >= 0)
+                    {
+                        output[--outputOffset] = output[offset + outputOffset];
+                    }
+                }
+                else
+                {
+                    output[--outputOffset] = c;
+                }
+            }
+            return output;
+        }
+    }
+}
+#endif
