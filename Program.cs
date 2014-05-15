@@ -658,10 +658,10 @@ namespace KH1FM_Toolkit
             {
                 // Some functions work with raw bits, so we HAVE to be using little endian.
                 // .NET, however, supports running the same code on both types.
-                if (BitConverter.IsLittleEndian != true) { throw new PlatformNotSupportedException("This program relies on running as little endian"); }
+                if (BitConverter.IsLittleEndian != true) { throw new PlatformNotSupportedException("Platform not supported, not using a little endian bitconverter"); }
                 HashList.loadHashPairs();
                 Console.Title = KH1ISOReader.program.ProductName + " " + KH1ISOReader.program.FileVersion + " [" + KH1ISOReader.program.CompanyName + "]";
-                bool ocompress = true, oupdateHeads = true, extract = false;
+                bool ocompress = true, oupdateHeads = true, extract = true;
                 string iso = "", oextHead = "", NewIso = "";
                 #region Arguments
                 for (int i = 0, argc = args.Length; i < argc; ++i)
@@ -670,6 +670,9 @@ namespace KH1FM_Toolkit
                     {
                         case "-batch": obatch = true; break;
                         case "-nocompress": ocompress = false; break;
+                        case "-extractor":
+                            extract = true;
+                            break;
 #if DEBUG
                         case "-noupisohead": oupdateHeads = false; break;
                         case "-externalhead":
@@ -690,11 +693,11 @@ namespace KH1FM_Toolkit
                     }
                 }
                 #endregion
-                    if (iso.Length == 0)
+                #region Description
+                if (iso.Length == 0)
                     {
                         iso = "KHFM.ISO";
                     }
-                    #region Description
                     Console.ForegroundColor = ConsoleColor.Gray;
                             var Builddate = RetrieveLinkerTimestamp();
                             Console.Write("{0}\nBuild Date: {2}\nVersion {1}", KH1ISOReader.program.ProductName, KH1ISOReader.program.FileVersion, Builddate);
@@ -715,7 +718,11 @@ namespace KH1FM_Toolkit
                             Console.Write("\nProgrammed by {0}\nhttp://www.govanify.blogspot.fr\nhttp://www.govanify.x10host.com",
                                 KH1ISOReader.program.CompanyName);
                             Console.ForegroundColor = ConsoleColor.Gray;
-                            Console.Write("\n\nThis tool is able to patch the game Kingdom Hearts 1(Final Mix).\nHe can modify iso files, like the elf and internal files,\nwich are stored inside the hidden file KINGDOM.IMG\nThis tool is recreating too new hashes into the idx files for avoid\na corrupted game. He can add some files too.\n\n");
+                            if (extract) { Console.Write("\n\nThis tool is able to extract the files of the game Kingdom Hearts 1(Final Mix).\nHe's using a list for extracting files with their real name which isn't completeBut this is the most complete one for now.\nHe can extract the files stored which got a reference into KINGDOM.IDX.\n\n"); }
+                            else
+                            {
+                                Console.Write("\n\nThis tool is able to patch the game Kingdom Hearts 1(Final Mix).\nHe can modify iso files, like the elf and internal files,\nwich are stored inside the hidden file KINGDOM.IMG\nThis tool is recreating too new hashes into the idx files for avoid\na corrupted game. He can add some files too.\n\n");
+                            }
                                 Console.ForegroundColor = ConsoleColor.Green;
                                 Console.Write("\nPress enter to run using the file:");
                                 Console.ResetColor();
