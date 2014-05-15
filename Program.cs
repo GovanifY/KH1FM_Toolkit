@@ -144,7 +144,7 @@ namespace KH1FM_Toolkit
             if (entry.size > 0x7FFFFFFF) { throw new Exception("File too large to read"); }
             iso.Position = dataOffset + (2048 * entry.LBA);
             return br.ReadBytes((int)entry.size);
-        }
+        }   
         /// <summary>Read raw bytes from the ISO</summary>
         /// <param name="offset">Offset to beginning of data</param>
         /// <param name="size">Size of data to return</param>
@@ -590,8 +590,9 @@ namespace KH1FM_Toolkit
                 if (BitConverter.IsLittleEndian != true) { throw new PlatformNotSupportedException("This program relies on running as little endian"); }
                 HashList.loadHashPairs();
                 Console.Title = KH1ISOReader.program.ProductName + " " + KH1ISOReader.program.FileVersion + " [" + KH1ISOReader.program.CompanyName + "]";
-                bool ocompress = true, oupdateHeads = true;
-                string oisoName = "", oextHead = "";
+                bool ocompress = true, oupdateHeads = true, extract = false;
+                string iso = "", oextHead = "", NewIso = "";
+                #region Arguments
                 for (int i = 0, argc = args.Length; i < argc; ++i)
                 {
                     switch (args[i].ToLower())
@@ -612,17 +613,19 @@ namespace KH1FM_Toolkit
                             if (File.Exists(args[i]))
                             {
                                 if (args[i].EndsWith(".iso", StringComparison.InvariantCultureIgnoreCase))
-                                { oisoName = args[i]; }
+                                { iso = args[i]; }
                             }
                             break;
                     }
                 }
+                #endregion
                 using (var files = new PatchManager(args))
                 {
-                    if (oisoName.Length == 0)
+                    if (iso.Length == 0)
                     {
-                        oisoName = "KHFM.ISO";
+                        iso = "KHFM.ISO";
                     }
+                    #region Description
                     Console.ForegroundColor = ConsoleColor.Gray;
                             var Builddate = RetrieveLinkerTimestamp();
                             Console.Write("{0}\nBuild Date: {2}\nVersion {1}", KH1ISOReader.program.ProductName, KH1ISOReader.program.FileVersion, Builddate);
@@ -647,83 +650,101 @@ namespace KH1FM_Toolkit
                                 Console.ForegroundColor = ConsoleColor.Green;
                                 Console.Write("\nPress enter to run using the file:");
                                 Console.ResetColor();
-                                Console.Write(" {0}", oisoName);
+                                Console.Write(" {0}", iso);
                                 Console.ReadLine();
-                    // Enable the close handler
+                    #endregion
+                                // Enable the close handler
+                    NewIso = Path.ChangeExtension(iso, "NEW.ISO");
                     NativeMethods.SetConsoleCtrlHandler(killHandler, true);
-                    using (var input = new KH1ISOReader(oisoName))
-                    using (var output = new KH1ISOWriter(Path.ChangeExtension(oisoName,"NEW.ISO"), input, oupdateHeads))
+                    using (var input = new KH1ISOReader(iso))
                     {
-                        Console.WriteLine("Adding header using {0} source", output.writeHeader(oextHead) ? "external" : "internal");
-                        for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
+                        if (extract) { /*TODO Implement extraction*/}
+                        else
                         {
-                            if (killReceived) { return; }
-                            IDXEntry entry = input.idxEntries[i];
-                            if (entry.hash == 0x0392ebe4) { continue; }//kingdom.img
-                            if (entry.hash == 0x0393eba4)//kingdom.idx
+                            try
                             {
-                                Console.WriteLine("[KINGDOM: {0}/{1}] KINGDOM.IDX", number, input.idxEntries.Count - 1);//-1 'cause of the file KINGDOM.IMG
-                                number++;
-                                output.writeDummyIDX(idxC);
-                                continue;
-                            }
+                                using (var output = new KH1ISOWriter(NewIso, input, oupdateHeads))
+                                {
+                                    Console.WriteLine("Adding header using {0} source", output.writeHeader(oextHead) ? "external" : "internal");
+                                    for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
+                                    {
+                                        if (killReceived) { return; }
+                                        IDXEntry entry = input.idxEntries[i];
+                                        if (entry.hash == 0x0392ebe4) { continue; }//kingdom.img
+                                        if (entry.hash == 0x0393eba4)//kingdom.idx
+                                        {
+                                            Console.WriteLine("[KINGDOM: {0}/{1}] KINGDOM.IDX", number, input.idxEntries.Count - 1);//-1 'cause of the file KINGDOM.IMG
+                                            number++;
+                                            output.writeDummyIDX(idxC);
+                                            continue;
+                                        }
 
-                            //Loading the patch
-                            UInt32 flags;
-                            using (Stream s = files.findFile(entry.hash, out flags))
+                                        //Loading the patch
+                                        UInt32 flags;
+                                        using (Stream s = files.findFile(entry.hash, out flags))
+                                        {
+                                            string name;
+                                            if (!HashList.pairs.TryGetValue(entry.hash, out name)) { name = String.Format("@noname/{0:x8}.bin", entry.hash); }
+                                            if (s == null)
+                                            {
+                                                if (flags != 0)
+                                                {
+                                                    Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tRelinking...", number, input.idxEntries.Count - 1, name);//-1 'cause of the file KINGDOM.IMG
+                                                    number++;
+                                                    if (!HashList.pairs.TryGetValue(flags, out name)) { name = String.Format("@noname/{0:x8}.bin", flags); }
+                                                    Console.WriteLine("{0}", name);
+                                                    output.addRelink(entry.hash, flags);
+                                                }
+                                                else
+                                                {
+                                                    Console.WriteLine("[KINGDOM: {0}/{1}] {2}", number, input.idxEntries.Count - 1, name);//-1 'cause of the file KINGDOM.IMG
+                                                    number++;
+                                                    output.copyFile(entry);
+                                                }
+                                            }
+                                            else
+                                            {
+                                                Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tPatching...", number, input.idxEntries.Count, name);//-1 'cause of the file KINGDOM.IMG
+                                                number++;
+                                                if (flags == 0 && ((ocompress && (entry.flags & 0x01) == 1) || entry.hash == 0x0000171d))   //Older versions + the fallback method find the IDX via compressed pi00_04.bin entry
+                                                {
+                                                    var bytes = new byte[s.Length];
+                                                    s.Read(bytes, 0, (int)s.Length);
+                                                    try
+                                                    {
+                                                        bytes = KHCompress.KH1Compressor.compress(bytes);
+                                                        flags |= 1;
+                                                    }
+                                                    catch (KHCompress.NotCompressableException e)
+                                                    {
+                                                        Console.WriteLine("  Cannot compress file: {0}", e.Message);
+                                                    }
+                                                    output.writeBytes(bytes, entry.hash, flags);
+                                                }
+                                                else
+                                                {
+                                                    output.importFile(s, entry.hash, flags);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    output.finalize();
+                                    Console.ForegroundColor = ConsoleColor.Green;
+                                    Console.WriteLine("New ISO finished!");
+                                    Console.ResetColor();
+                                }
+                            }
+                            catch (Exception)
                             {
-                                string name;
-                                if (!HashList.pairs.TryGetValue(entry.hash, out name)) { name = String.Format("@noname/{0:x8}.bin", entry.hash); }
-                                if (s == null)
-                                {
-                                    if (flags != 0)
-                                    {
-                                        Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tRelinking...", number, input.idxEntries.Count - 1, name);//-1 'cause of the file KINGDOM.IMG
-                                        number++;
-                                        if (!HashList.pairs.TryGetValue(flags, out name)) { name = String.Format("@noname/{0:x8}.bin", flags); }
-                                        Console.WriteLine("{0}", name);
-                                        output.addRelink(entry.hash, flags);
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine("[KINGDOM: {0}/{1}] {2}", number, input.idxEntries.Count - 1, name);//-1 'cause of the file KINGDOM.IMG
-                                        number++;
-                                        output.copyFile(entry);
-                                    }
-                                }
-                                else
-                                {
-                                    Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tPatching...", number, input.idxEntries.Count, name);//-1 'cause of the file KINGDOM.IMG
-                                    number++;
-                                    if (flags == 0 && ((ocompress && (entry.flags & 0x01) == 1) || entry.hash == 0x0000171d))   //Older versions + the fallback method find the IDX via compressed pi00_04.bin entry
-                                    {
-                                        var bytes = new byte[s.Length];
-                                        s.Read(bytes, 0, (int)s.Length);
-                                        try
-                                        {
-                                            bytes = KHCompress.KH1Compressor.compress(bytes);
-                                            flags |= 1;
-                                        }
-                                        catch (KHCompress.NotCompressableException e)
-                                        {
-                                            Console.WriteLine("  Cannot compress file: {0}", e.Message);
-                                        }
-                                        output.writeBytes(bytes, entry.hash, flags);
-                                    }
-                                    else
-                                    {
-                                        output.importFile(s, entry.hash, flags);
-                                    }
-                                }
+                                //Delete the new "incomplete" iso
+                                File.Delete(NewIso);
+                                throw;
                             }
                         }
-                        output.finalize();
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine("New ISO finished!");
-                        Console.ResetColor();
+                        
+                        // Disable the close handler
+                        NativeMethods.SetConsoleCtrlHandler(killHandler, false);
                     }
-                    // Disable the close handler
-                    NativeMethods.SetConsoleCtrlHandler(killHandler, false);
                 }
             }
             catch (Exception e)
