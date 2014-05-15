@@ -530,142 +530,10 @@ namespace KH1FM_Toolkit
     }
     class Program
     {
-        private static DateTime RetrieveLinkerTimestamp()
+        private static void PatchISO(KH1ISOReader input, KH1ISOWriter output, PatchManager files, bool ocompress, string oextHead)
         {
-            string filePath = Assembly.GetCallingAssembly().Location;
-            const int cPeHeaderOffset = 60;
-            const int cLinkerTimestampOffset = 8;
-            var b = new byte[2048];
-            Stream s = null;
-
-            try
-            {
-                s = new FileStream(filePath, FileMode.Open, FileAccess.Read);
-                s.Read(b, 0, 2048);
-            }
-            finally
-            {
-                if (s != null)
-                {
-                    s.Close();
-                }
-            }
-
-            int i = BitConverter.ToInt32(b, cPeHeaderOffset);
-            int secondsSince1970 = BitConverter.ToInt32(b, i + cLinkerTimestampOffset);
-            var dt = new DateTime(1970, 1, 1, 0, 0, 0);
-            dt = dt.AddSeconds(secondsSince1970);
-            dt = dt.AddHours(TimeZone.CurrentTimeZone.GetUtcOffset(dt).Hours);
-            return dt;
-        }
-
-        /// <summary>When true, return properly as fast as possible</summary>
-        volatile static bool killReceived;
-        /// <summary><para>Function to handle Ctrl+C and clicking the "Close X" button</para><para>Can be added or removed as a handler as needed</para></summary>
-        static readonly NativeMethods.HandlerRoutine killHandler = delegate(uint t)
-        {
-            switch (t)
-            {
-                case 0:
-                    goto case 1; /*Ctrl+C*/
-                case 1:
-                    killReceived = true;
-                    return true; /*Ctrl+Break*/
-                case 2: /*CLOSE*/
-                    killReceived = true;
-                    System.Threading.Thread.Sleep(5000);
-                        //Keeps the app from insta-dying for 5 secs, enough time to return below
-                    return true;
-            }
-            return false;
-        };
-        static void Main(string[] args)
-        {
-            bool obatch = false;
             int number = 1;
-            try
-            {
-                // Some functions work with raw bits, so we HAVE to be using little endian.
-                // .NET, however, supports running the same code on both types.
-                if (BitConverter.IsLittleEndian != true) { throw new PlatformNotSupportedException("This program relies on running as little endian"); }
-                HashList.loadHashPairs();
-                Console.Title = KH1ISOReader.program.ProductName + " " + KH1ISOReader.program.FileVersion + " [" + KH1ISOReader.program.CompanyName + "]";
-                bool ocompress = true, oupdateHeads = true, extract = false;
-                string iso = "", oextHead = "", NewIso = "";
-                #region Arguments
-                for (int i = 0, argc = args.Length; i < argc; ++i)
-                {
-                    switch (args[i].ToLower())
-                    {
-                        case "-batch": obatch = true; break;
-                        case "-nocompress": ocompress = false; break;
-#if DEBUG
-                        case "-noupisohead": oupdateHeads = false; break;
-                        case "-externalhead":
-#endif
-                            if (++i < argc && (oextHead = args[i]).Length != 0) { break; }
-                            oextHead = "KH1ISOMake-head.bin";
-                            break;
-                        case "-patchmaker":
-                            KH1_Patch_Maker.Program.Mainp(args);
-                            break;
-                        default:
-                            if (File.Exists(args[i]))
-                            {
-                                if (args[i].EndsWith(".iso", StringComparison.InvariantCultureIgnoreCase))
-                                { iso = args[i]; }
-                            }
-                            break;
-                    }
-                }
-                #endregion
-                using (var files = new PatchManager(args))
-                {
-                    if (iso.Length == 0)
-                    {
-                        iso = "KHFM.ISO";
-                    }
-                    #region Description
-                    Console.ForegroundColor = ConsoleColor.Gray;
-                            var Builddate = RetrieveLinkerTimestamp();
-                            Console.Write("{0}\nBuild Date: {2}\nVersion {1}", KH1ISOReader.program.ProductName, KH1ISOReader.program.FileVersion, Builddate);
-                            string Platform;
-                            if (IntPtr.Size == 8) { Platform = "x64"; }
-                            else { Platform = "x86"; }
-                            Console.Write("\n{0} build", Platform);
-                            Console.ResetColor();
-#if DEBUG
-                            Console.ForegroundColor = ConsoleColor.Red;
-                            Console.Write("\nPRIVATE RELEASE\n");
-                            Console.ResetColor();
-#else
-                Console.Write("\nPUBLIC RELEASE\n");
-#endif
-
-                            Console.ForegroundColor = ConsoleColor.DarkMagenta;
-                            Console.Write("\nProgrammed by {0}\nhttp://www.govanify.blogspot.fr\nhttp://www.govanify.x10host.com",
-                                KH1ISOReader.program.CompanyName);
-                            Console.ForegroundColor = ConsoleColor.Gray;
-                            Console.Write("\n\nThis tool is able to patch the game Kingdom Hearts 1(Final Mix).\nHe can modify iso files, like the elf and internal files,\nwich are stored inside the hidden file KINGDOM.IMG\nThis tool is recreating too new hashes into the idx files for avoid\na corrupted game. He can add some files too.\n\n");
-                                Console.ForegroundColor = ConsoleColor.Green;
-                                Console.Write("\nPress enter to run using the file:");
-                                Console.ResetColor();
-                                Console.Write(" {0}", iso);
-                                Console.ReadLine();
-                    #endregion
-                                // Enable the close handler
-                    NewIso = Path.ChangeExtension(iso, "NEW.ISO");
-                    NativeMethods.SetConsoleCtrlHandler(killHandler, true);
-                    using (var input = new KH1ISOReader(iso))
-                    {
-                        if (extract) { /*TODO Implement extraction*/}
-                        else
-                        {
-                            try
-                            {
-                                using (var output = new KH1ISOWriter(NewIso, input, oupdateHeads))
-                                {
-                                    Console.WriteLine("Adding header using {0} source", output.writeHeader(oextHead) ? "external" : "internal");
+                                                Console.WriteLine("Adding header using {0} source", output.writeHeader(oextHead) ? "external" : "internal");
                                     for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
                                     {
                                         if (killReceived) { return; }
@@ -732,6 +600,143 @@ namespace KH1FM_Toolkit
                                     Console.ForegroundColor = ConsoleColor.Green;
                                     Console.WriteLine("New ISO finished!");
                                     Console.ResetColor();
+        }
+
+        private static DateTime RetrieveLinkerTimestamp()
+        {
+            string filePath = Assembly.GetCallingAssembly().Location;
+            const int cPeHeaderOffset = 60;
+            const int cLinkerTimestampOffset = 8;
+            var b = new byte[2048];
+            Stream s = null;
+
+            try
+            {
+                s = new FileStream(filePath, FileMode.Open, FileAccess.Read);
+                s.Read(b, 0, 2048);
+            }
+            finally
+            {
+                if (s != null)
+                {
+                    s.Close();
+                }
+            }
+
+            int i = BitConverter.ToInt32(b, cPeHeaderOffset);
+            int secondsSince1970 = BitConverter.ToInt32(b, i + cLinkerTimestampOffset);
+            var dt = new DateTime(1970, 1, 1, 0, 0, 0);
+            dt = dt.AddSeconds(secondsSince1970);
+            dt = dt.AddHours(TimeZone.CurrentTimeZone.GetUtcOffset(dt).Hours);
+            return dt;
+        }
+
+        /// <summary>When true, return properly as fast as possible</summary>
+        volatile static bool killReceived;
+        /// <summary><para>Function to handle Ctrl+C and clicking the "Close X" button</para><para>Can be added or removed as a handler as needed</para></summary>
+        static readonly NativeMethods.HandlerRoutine killHandler = delegate(uint t)
+        {
+            switch (t)
+            {
+                case 0:
+                    goto case 1; /*Ctrl+C*/
+                case 1:
+                    killReceived = true;
+                    return true; /*Ctrl+Break*/
+                case 2: /*CLOSE*/
+                    killReceived = true;
+                    System.Threading.Thread.Sleep(5000);
+                        //Keeps the app from insta-dying for 5 secs, enough time to return below
+                    return true;
+            }
+            return false;
+        };
+        static void Main(string[] args)
+        {
+            bool obatch = false;
+            try
+            {
+                // Some functions work with raw bits, so we HAVE to be using little endian.
+                // .NET, however, supports running the same code on both types.
+                if (BitConverter.IsLittleEndian != true) { throw new PlatformNotSupportedException("This program relies on running as little endian"); }
+                HashList.loadHashPairs();
+                Console.Title = KH1ISOReader.program.ProductName + " " + KH1ISOReader.program.FileVersion + " [" + KH1ISOReader.program.CompanyName + "]";
+                bool ocompress = true, oupdateHeads = true, extract = false;
+                string iso = "", oextHead = "", NewIso = "";
+                #region Arguments
+                for (int i = 0, argc = args.Length; i < argc; ++i)
+                {
+                    switch (args[i].ToLower())
+                    {
+                        case "-batch": obatch = true; break;
+                        case "-nocompress": ocompress = false; break;
+#if DEBUG
+                        case "-noupisohead": oupdateHeads = false; break;
+                        case "-externalhead":
+#endif
+                            if (++i < argc && (oextHead = args[i]).Length != 0) { break; }
+                            oextHead = "KH1ISOMake-head.bin";
+                            break;
+                        case "-patchmaker":
+                            KH1_Patch_Maker.Program.Mainp(args);
+                            break;
+                        default:
+                            if (File.Exists(args[i]))
+                            {
+                                if (args[i].EndsWith(".iso", StringComparison.InvariantCultureIgnoreCase))
+                                { iso = args[i]; }
+                            }
+                            break;
+                    }
+                }
+                #endregion
+                    if (iso.Length == 0)
+                    {
+                        iso = "KHFM.ISO";
+                    }
+                    #region Description
+                    Console.ForegroundColor = ConsoleColor.Gray;
+                            var Builddate = RetrieveLinkerTimestamp();
+                            Console.Write("{0}\nBuild Date: {2}\nVersion {1}", KH1ISOReader.program.ProductName, KH1ISOReader.program.FileVersion, Builddate);
+                            string Platform;
+                            if (IntPtr.Size == 8) { Platform = "x64"; }
+                            else { Platform = "x86"; }
+                            Console.Write("\n{0} build", Platform);
+                            Console.ResetColor();
+#if DEBUG
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.Write("\nPRIVATE RELEASE\n");
+                            Console.ResetColor();
+#else
+                Console.Write("\nPUBLIC RELEASE\n");
+#endif
+
+                            Console.ForegroundColor = ConsoleColor.DarkMagenta;
+                            Console.Write("\nProgrammed by {0}\nhttp://www.govanify.blogspot.fr\nhttp://www.govanify.x10host.com",
+                                KH1ISOReader.program.CompanyName);
+                            Console.ForegroundColor = ConsoleColor.Gray;
+                            Console.Write("\n\nThis tool is able to patch the game Kingdom Hearts 1(Final Mix).\nHe can modify iso files, like the elf and internal files,\nwich are stored inside the hidden file KINGDOM.IMG\nThis tool is recreating too new hashes into the idx files for avoid\na corrupted game. He can add some files too.\n\n");
+                                Console.ForegroundColor = ConsoleColor.Green;
+                                Console.Write("\nPress enter to run using the file:");
+                                Console.ResetColor();
+                                Console.Write(" {0}", iso);
+                                Console.ReadLine();
+                    #endregion
+                                // Enable the close handler
+                    NewIso = Path.ChangeExtension(iso, "NEW.ISO");
+                    NativeMethods.SetConsoleCtrlHandler(killHandler, true);
+                    using (var input = new KH1ISOReader(iso))
+                    {
+                        if (extract) { /*TODO Implement extraction*/}
+                        else
+                        {
+                            using (var files = new PatchManager(args))
+                            {
+                            try
+                            {
+                                using (var output = new KH1ISOWriter(NewIso, input, oupdateHeads))
+                                {
+                                    PatchISO(input, output, files, ocompress, oextHead);
                                 }
                             }
                             catch (Exception)
