@@ -552,6 +552,7 @@ namespace KH1FM_Toolkit
     }
     class Program
     {
+
         private static bool _advanced;
         public static void WriteWarning(string format, params object[] arg)
         {
@@ -696,6 +697,23 @@ namespace KH1FM_Toolkit
                                         string name2;
                                         string filename;
                                         if (!HashList.pairs.TryGetValue(entry.hash, out name2)) { name2 = String.Format("@noname/{0:x8}.bin", entry.hash); }
+                                        if (name2 == "system.cnf") { continue; }
+                                        if (name2 == "SLPS_251.98") { continue; }
+                                        if (name2 == "ioprp250.img") { continue; }
+                                        if (name2 == "sio2man.irx") { continue; }
+                                        if (name2 == "sio2d.irx") { continue; }
+                                        if (name2 == "dbcman.irx") { continue; }
+                                        if (name2 == "ds2o.irx") { continue; }
+                                        if (name2 == "mcman.irx") { continue; }
+                                        if (name2 == "mcserv.irx") { continue; }
+                                        if (name2 == "libsd.irx") { continue; }
+                                        if (name2 == "libssl.irx") { continue; }
+                                        if (name2 == "dev9.irx") { continue; }
+                                        if (name2 == "atad.irx") { continue; }
+                                        if (name2 == "hdd.irx") { continue; }
+                                        if (name2 == "pfs.irx") { continue; }
+                                        if (name2 == "kingdom.idx") { continue; }
+                                        if (name2 == "kingdom.img") { continue; }
                                             var idxs = new List<Tuple<IDXFile, string>>();
                                                 if (_advanced)
                                                 {
@@ -714,7 +732,8 @@ namespace KH1FM_Toolkit
                                                 using (var output = new FileStream(filename, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
                                                 {
                                                     bool adSize = _advanced;
-                                                    //imgf.ReadFile(entry, output, adSize);
+                                                    byte[] file = input.readFile(entry);
+                                                    //DECOMPRESS THEN RELINK
                                                 }
                                             }
         }
