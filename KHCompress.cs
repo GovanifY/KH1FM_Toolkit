@@ -139,13 +139,13 @@ namespace KHCompress
                     new[] {input[--inputOffset], input[--inputOffset], input[--inputOffset], input[--inputOffset]}, 0);
             Debug.WriteLineIf(outputOffset != uSize,
                 "Got size " + uSize + "from IDX, but " + outputOffset + " internally");
-            outputOffset = uSize;
+                    outputOffset = uSize;
 #else
     // KH2 internally skips the 4 "size" bytes and uses what the IDX says
             inputOffset -= 4;
             uint outputOffset = uSize;
 #endif
-            var output = new byte[outputOffset];
+            byte[] output = new byte[outputOffset];
             while (inputOffset > 0 /* && outputOffset > 0*/)
                 //I could check for outputOffset too, but if it goes below 0 the file is probably corrupt. Let the caller handle that.
             {
@@ -165,6 +165,70 @@ namespace KHCompress
             }
             return output;
         }
+public static byte[] decompress2(byte[] bin, bool adSize)
+{
+	double num = (double)((Array)bin).Length;
+	checked
+	{
+		int num2 = (int)bin[(int)(unchecked(num - (double)2))] | ((int)bin[(int)(unchecked(num - (double)3))] | (int)bin[(int)(unchecked(num - (double)4))] << 8) << 8;
+		double d = (double)num2;
+		byte[] array = new byte[(int)(d)];
+		int num3 = (int)(unchecked(num - (double)5));
+		byte b = bin[(int)(unchecked(num - (double)1))];
+		while (true)
+		{
+			int num4;
+			num3 = (num4 = num3) - 1;
+			byte b2;
+			if ((b2 = bin[num4]) != b)
+			{
+				goto IL_F2;
+			}
+			int num5;
+			num3 = (num5 = num3) - 1;
+			int num6;
+			if ((num6 = (int)bin[num5]) == 0)
+			{
+				goto IL_F2;
+			}
+			int num7;
+			num3 = (num7 = num3) - 1;
+			int num8 = (int)(bin[num7] + 3);
+			num6 += num2;
+			while (true)
+			{
+				int num9;
+				num8 = (num9 = num8) - 1;
+				if (num9 <= 0)
+				{
+					break;
+				}
+				if (num2 < 1)
+				{
+					goto Block_3;
+				}
+				array[--num2] = array[--num6];
+			}
+			IL_106:
+			if (num2 <= 0)
+			{
+				break;
+			}
+			continue;
+			IL_F2:
+			if (num2 > 0)
+			{
+				array[--num2] = b2;
+				goto IL_106;
+			}
+			goto IL_106;
+		}
+		Block_3:
+        if (adSize) { Console.WriteLine("Size (unpacked): {0}", d); }
+		return array;
+	}
+}
+       
     }
 }
 #endif
