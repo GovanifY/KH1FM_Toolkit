@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-
 /* KH1 Patch File Format
  * 0    UInt32  Magic 0x5031484B "KH1P"
  * 4    UInt32  Patch version
@@ -24,6 +23,8 @@ using System.IO;
  *     Files from a patch file will not be compressed when added to the ISO.
  *   29 bytes is the smallest patch file possible: Author string is 0 bytes, and 1 file is relinked.
  */
+using System.Text;
+using GovanifY.Utility;
 
 namespace KH1FM_Toolkit
 {
@@ -74,55 +75,51 @@ namespace KH1FM_Toolkit
             Second = second;
         }
     }
-    public class PatchManager : IDisposable
+    public sealed class PatchManager : IDisposable
     {
+        public bool ISOChanged { get; private set; }
+        public bool KINGDOMChanged { get; private set; }
+        private readonly List<Stream> patchms = new List<Stream>();
+
+        /// <summary>Mapping of Parent IDX -> new children hashes</summary>
+        internal Dictionary<uint, List<uint>> newfiles = new Dictionary<uint, List<uint>>();
+
+        /// <summary>Mapping of hash->Patch</summary>
+        internal Dictionary<uint, Patch> patches = new Dictionary<uint, Patch>();
         public static void NGYXor(byte[] buffer)
         {
-            byte[] v84 = { 0xa4, 0x1c, 0x6b, 0x81, 0x30, 0xd, 0x23, 0x5b };
+            byte[] v84 = { 164, 28, 107, 129, 48, 13, 35, 91, 92, 58, 167, 222, 219, 244, 115, 90, 160, 194, 112, 209, 40, 72, 170, 114, 98, 181, 154, 124, 124, 32, 224, 199, 34, 32, 114, 204, 38, 198, 188, 128, 45, 120, 181, 149, 219, 55, 33, 116, 6, 17, 181, 125, 239, 137, 72, 215, 1, 167, 110, 208, 110, 238, 124, 204 };
             int i = -1, l = buffer.Length;
             while (l > 0)
             {
-                buffer[++i] ^= v84[(--l & 7)];
+                buffer[++i] ^= v84[(--l & 63)];
             }
         }
-
-        private List<BinaryReader> patches = new List<BinaryReader>();
+        static UInt32 calcHash(byte[] name)
+        {
+            int v0 = 0;
+            uint i = 0;
+            byte c;
+            while ((c = name[i++]) != 0)
+            {
+                v0 = (2 * v0) ^ (((int)c << 16) % 69665);
+            }
+            return (uint)v0;
+        }
+        public static UInt32 calcHash(string name) { return calcHash(Encoding.ASCII.GetBytes(name + '\0')); }
         private Dictionary<uint, Tuple<int, long>> patchedFiles = new Dictionary<uint, Tuple<int, long>>();
         private string rawSearch;
         public PatchManager(string path = ".", string looseSearchPath = "import/")
         {
-            rawSearch = looseSearchPath;
-            if (path.Length != 0)
-            {
-                string[] files = Directory.GetFiles(path, "*.kh1patch", SearchOption.TopDirectoryOnly);
-                patches.Capacity = files.Length;
-                foreach (string s in files)
-                {
-                    BinaryReader file = null;
-                    try
-                    {
-                        file = new BinaryReader(File.Open(s, FileMode.Open, FileAccess.Read, FileShare.Read));
-                        string author; UInt32 version;
-                        if (file.BaseStream.Length < 29 || file.ReadUInt32() != 0x5031484B || parsePatch(file, patches.Count, out author, out version) == 0) { throw new Exception("Invalid or empty patch file"); }
-                        patches.Add(file);
-                        Console.WriteLine("Loaded {0} version {1} by {2}", s, version, author);
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine("Failed to open patch file {0}: {1}", s, e.Message);
-                        if (file != null) { file.Close(); }
-                    }
-                }
-            }
+
         }
         ~PatchManager(){Dispose(false);}
         public void Dispose(){Dispose(true);}
-        protected virtual void Dispose(bool disposing)
+        protected void Dispose(bool disposing)
         {
             if (disposing)
             {
                 patchedFiles.Clear();
-                foreach (var f in patches) { f.Close(); }
                 patches.Clear();
             }
         }
@@ -144,43 +141,220 @@ namespace KH1FM_Toolkit
             }
             return fileC;
         }
-        /// <summary>Locates a file in patches or loose folder</summary>
-        /// <param name="hash">Hash to locate</param>
-        /// <param name="flags"><para>Output flags: 0 if not compressed, 1 if compressed</para><para>If return is null and <c>flags</c> > 0, flags is a hash to relink to</para></param>
-        /// <returns><para>A stream containing only the target file.</para><para><c>null</c> if no file found, or if relinking</para></returns>
-        public Stream findFile(UInt32 hash, out UInt32 flags)
+        internal void AddToNewFiles(Patch nPatch)
         {
-            flags = 0;
-            Tuple<int, long> pData;
-            if (patchedFiles.TryGetValue(hash, out pData))
+            nPatch.IsNew = true;
+            if (!newfiles.ContainsKey(nPatch.Parent))
             {
-                BinaryReader br = patches[pData.First];
-                br.BaseStream.Position = pData.Second;
-                if (br.ReadUInt32() != hash) { throw new Exception("Bad offset stored"); }
-                hash = br.ReadUInt32();   //Flags
-                if ((hash & 0x1) == 1) { flags = 1; }
-                hash = br.ReadUInt32();   //Abs Offset
-                UInt32 size = br.ReadUInt32();
-                if (hash == 0)  //Relink
+                newfiles.Add(nPatch.Parent, new List<uint>(1));
+            }
+            if (!newfiles[nPatch.Parent].Contains(nPatch.Hash))
+            {
+                newfiles[nPatch.Parent].Add(nPatch.Hash);
+            }
+        }
+        private void AddPatch(Stream ms, string patchname = "")
+        {
+            using (var br = new BinaryStream(ms, Encoding.ASCII, leaveOpen: true))
+            {
+                if (br.ReadUInt32() != 0x5031484B)
                 {
-                    flags = size;
+                    br.Close();
+                    ms.Close();
+                    throw new InvalidDataException("Invalid KH1Patch file!");
                 }
-                else
+                patchms.Add(ms);
+                uint oaAuther = br.ReadUInt32(),
+                    obFileCount = br.ReadUInt32(),
+                    num = br.ReadUInt32();
+                patchname = Path.GetFileName(patchname);
+                try
                 {
-                    return new Substream(br.BaseStream, hash, size);
+                    string author = br.ReadCString();
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine("Loading patch {0} version {1} by {2}", patchname, num, author);
+                    Console.ResetColor();
+                    br.Seek(oaAuther, SeekOrigin.Begin);
+                    uint os1 = br.ReadUInt32(),
+                        os2 = br.ReadUInt32(),
+                        os3 = br.ReadUInt32();
+                    br.Seek(oaAuther + os1, SeekOrigin.Begin);
+                    num = br.ReadUInt32();
+                    if (num > 0)
+                    {
+                        br.Seek(num * 4, SeekOrigin.Current);
+                        Console.WriteLine("Changelog:");
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        while (num > 0)
+                        {
+                            --num;
+                            Console.WriteLine(" * {0}", br.ReadCString());
+                        }
+                    }
+                    br.Seek(oaAuther + os2, SeekOrigin.Begin);
+                    num = br.ReadUInt32();
+                    if (num > 0)
+                    {
+                        br.Seek(num * 4, SeekOrigin.Current);
+                        Console.ResetColor();
+                        Console.WriteLine("Credits:");
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        while (num > 0)
+                        {
+                            --num;
+                            Console.WriteLine(" * {0}", br.ReadCString());
+                        }
+                        Console.ResetColor();
+                    }
+                    br.Seek(oaAuther + os3, SeekOrigin.Begin);
+                    author = br.ReadCString();
+                    if (author.Length != 0)
+                    {
+                        Console.WriteLine("Other information:\r\n");
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine("{0}", author);
+                    }
+                    Console.ResetColor();
+                }
+                catch (Exception e)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("Error reading kh2patch header: {0}: {1}\r\nAttempting to continue files...",
+                        e.GetType(), e.Message);
+                    Console.ResetColor();
+                }
+                Console.WriteLine("");
+                br.Seek(obFileCount, SeekOrigin.Begin);
+                num = br.ReadUInt32();
+                while (num > 0)
+                {
+                    --num;
+                    var nPatch = new Patch();
+                    nPatch.Hash = br.ReadUInt32();
+                    oaAuther = br.ReadUInt32();
+                    nPatch.CompressedSize = br.ReadUInt32();
+                    nPatch.Parent = br.ReadUInt32();
+                    nPatch.Relink = br.ReadUInt32();
+                    nPatch.Compressed = br.ReadUInt32() != 0;
+                    nPatch.IsNew = br.ReadUInt32() == 1; //Custom
+                    if (!nPatch.IsRelink)
+                    {
+                        if (nPatch.CompressedSize != 0)
+                        {
+                            nPatch.Stream = new Substream(ms, oaAuther, nPatch.CompressedSize);
+                        }
+                        else
+                        {
+                            throw new InvalidDataException("File length is 0, but not relinking.");
+                        }
+                    }
+                    // Use the last file patch
+                    if (patches.ContainsKey(nPatch.Hash))
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine("The file {0} has been included multiple times. Using the one from {1}.",
+                            HashList.NameFromHash(nPatch.Hash), patchname);
+                        patches[nPatch.Hash].Dispose();
+                        patches.Remove(nPatch.Hash);
+                        Console.ResetColor();
+                    }
+                    patches.Add(nPatch.Hash, nPatch);
+                    //Global checks
+                    if (!KINGDOMChanged && nPatch.IsInKINGDOM)
+                    {
+                        KINGDOMChanged = true;
+                    }
+                    else if (!ISOChanged && nPatch.IsinISO)
+                    {
+                        ISOChanged = true;
+                    }
+                    if (nPatch.IsNew)
+                    {
+                        AddToNewFiles(nPatch);
+                    }
+                    br.Seek(60, SeekOrigin.Current);
                 }
             }
-            else if (rawSearch.Length > 1)
+        }
+
+        public void AddPatch(string patchname)
+        {
+            FileStream fs = null;
+            try
             {
-                string name;
-                if (HashList.pairs.TryGetValue(hash, out name)) { name = rawSearch + name; }
-                else { name = String.Format("{0}@noname/{1:x8}.bin", rawSearch, hash); }
-                if (File.Exists(name))
+                fs = new FileStream(patchname, FileMode.Open, FileAccess.Read, FileShare.Read);
+                if (fs.ReadByte() == 0x4B && fs.ReadByte() == 0x48 && fs.ReadByte() == 0x31 && fs.ReadByte() == 0x50)
                 {
-                    return File.Open(name, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    fs.Position = 0;
+                    AddPatch(fs, patchname);
+                    return;
+                }
+                if (fs.Length > int.MaxValue)
+                {
+                    throw new OutOfMemoryException("File too large");
+                }
+
+                try
+                {
+                    fs.Position = 0;
+                    var buffer = new byte[fs.Length];
+                    fs.Read(buffer, 0, (int)fs.Length);
+                    NGYXor(buffer);
+                    AddPatch(new MemoryStream(buffer), patchname);
+                }
+
+                catch (Exception)
+                {
+                      
+                }
+                finally
+                {
+                    fs.Dispose();
+                    fs = null;
                 }
             }
-            return null;
+            catch (Exception e)
+            {
+                if (fs != null)
+                {
+                    fs.Dispose();
+                }
+                Console.WriteLine("Failed to parse patch: {0}", e.Message);
+            }
+        }
+        internal class Patch : IDisposable
+        {
+            public bool Compressed;
+            public uint CompressedSize;
+            public uint Hash;
+            public bool IsNew;
+            public uint Parent;
+            public uint Relink;
+            public Substream Stream;
+
+            public bool IsInKINGDOM
+            {
+                get { return Parent == 0; }
+            }
+
+            public bool IsinISO
+            {
+                get { return Parent == 1; }
+            }
+
+            public bool IsRelink
+            {
+                get { return Relink != 0; }
+            }
+
+            public void Dispose()
+            {
+                if (Stream != null)
+                {
+                    Stream.Dispose();
+                    Stream = null;
+                }
+            }
         }
     }
 }

@@ -16,11 +16,9 @@ namespace KH1FM_Toolkit
 {
     internal class IDXFile
     {
-        private BinaryReader file;
-
         public IDXFile(Stream input, bool newidx = false, bool leaveOpen = false)
         {
-            file = new BinaryReader(input);
+            var file = new BinaryReader(input);
             input.Position = 0;
             if (newidx)
             {
@@ -306,11 +304,6 @@ namespace KH1FM_Toolkit
             Dispose(true); /*GC.SuppressFinalize(this);*/
         }
 
-        ~KH1ISOWriter()
-        {
-            Dispose(false);
-        }
-
         /// <summary>
         ///     <para>Clean up unmanaged resources</para>
         ///     <para>Also try to delete ISO is not finalized</para>
@@ -398,141 +391,38 @@ namespace KH1FM_Toolkit
         /// <exception cref="System.Exception">Thrown when file doesn't start on a 2048-byte boundary</exception>
         private void updateISOFileInfo(UInt32 hash, long newPos, UInt32 newLen)
         {
-            if ((newPos%2048) != 0)
-            {
-                throw new Exception("File not on an ISO boundary");
-            }
+            if ((newPos % 2048) != 0) { throw new Exception("File not on an ISO boundary"); }
             UInt32 offI = 0, offU = 0;
             switch (hash)
             {
-                case 0x009fa157:
-                    offI = 534626;
-                    offU = 544824;
-                    break; //system.cnf
-                case 0x0100414e:
-                    offI = 534686;
-                    offU = 546872;
-                    break; //SLPS_251.98
-                case 0x07fa52d4:
-                    offI = 534746;
-                    offU = 548920;
-                    break; //ioprp250.img
-                case 0x013df21a:
-                    offI = 534808;
-                    offU = 550968;
-                    break; //sio2man.irx
-                case 0x0046762a:
-                    offI = 534868;
-                    offU = 553016;
-                    break; //sio2d.irx
-                case 0x00249f1a:
-                    offI = 534926;
-                    offU = 555064;
-                    break; //dbcman.irx
-                case 0x0002088a:
-                    offI = 534986;
-                    offU = 557112;
-                    break; //ds2o.irx
-                case 0x00a5a51a:
-                    offI = 535044;
-                    offU = 559160;
-                    break; //mcman.irx
-                case 0x01117bda:
-                    offI = 535102;
-                    offU = 561208;
-                    break; //mcserv.irx
-                case 0x00c04a8a:
-                    offI = 535162;
-                    offU = 563256;
-                    break; //libsd.irx
-                case 0x018d391a:
-                    offI = 535220;
-                    offU = 565304;
-                    break; //libssl.irx
-                case 0x0002cefa:
-                    offI = 535280;
-                    offU = 567352;
-                    break; //dev9.irx
-                case 0x002283ea:
-                    offI = 535338;
-                    offU = 569400;
-                    break; //atad.irx
-                case 0x003af68a:
-                    offI = 535396;
-                    offU = 571448;
-                    break; //hdd.irx
-                case 0x003aaf8a:
-                    offI = 535452;
-                    offU = 573496;
-                    break; //pfs.irx
-                case 0x001ec6d9:
-                    if (headerIMGEnd < 1)
-                    {
-                        headerIMGEnd = newPos;
-                    }
-                    if ((headerFlags & 0x02) != 0)
-                    {
-                        offI = 535628;
-                    }
-                    break; //demo.dat
-                case 0x001a7629:
-                    if (headerIMGEnd < 1)
-                    {
-                        headerIMGEnd = newPos;
-                    }
-                    if ((headerFlags & 0x04) != 0)
-                    {
-                        offI = 535672;
-                    }
-                    break; //opn.dat
-                case 0x00132c19:
-                    if (headerIMGEnd < 1)
-                    {
-                        headerIMGEnd = newPos;
-                    }
-                    if ((headerFlags & 0x08) != 0)
-                    {
-                        offI = 535714;
-                    }
-                    break; //end.dat
-                case 0x002118c9:
-                    if (headerIMGEnd < 1)
-                    {
-                        headerIMGEnd = newPos;
-                    }
-                    if ((headerFlags & 0x10) != 0)
-                    {
-                        offI = 535756;
-                    }
-                    break; //end2.dat
-                case 0x003118c9:
-                    if (headerIMGEnd < 1)
-                    {
-                        headerIMGEnd = newPos;
-                    }
-                    if ((headerFlags & 0x20) != 0)
-                    {
-                        offI = 535800;
-                    }
-                    break; //end3.dat
-                case 0x00dd0889:
-                    if (headerIMGEnd < 1)
-                    {
-                        headerIMGEnd = newPos;
-                    }
-                    if ((headerFlags & 0x40) != 0)
-                    {
-                        offI = 535844;
-                    }
-                    break; //ffx2.dat
-                default:
-                    return;
+                case 0x009fa157: offI = 534626; offU = 544824; break; //system.cnf
+                case 0x0100414e: offI = 534686; offU = 546872; break; //SLPS_251.98
+                case 0x07fa52d4: offI = 534746; offU = 548920; break; //ioprp250.img
+                case 0x013df21a: offI = 534808; offU = 550968; break; //sio2man.irx
+                case 0x0046762a: offI = 534868; offU = 553016; break; //sio2d.irx
+                case 0x00249f1a: offI = 534926; offU = 555064; break; //dbcman.irx
+                case 0x0002088a: offI = 534986; offU = 557112; break; //ds2o.irx
+                case 0x00a5a51a: offI = 535044; offU = 559160; break; //mcman.irx
+                case 0x01117bda: offI = 535102; offU = 561208; break; //mcserv.irx
+                case 0x00c04a8a: offI = 535162; offU = 563256; break; //libsd.irx
+                case 0x018d391a: offI = 535220; offU = 565304; break; //libssl.irx
+                case 0x0002cefa: offI = 535280; offU = 567352; break; //dev9.irx
+                case 0x002283ea: offI = 535338; offU = 569400; break; //atad.irx
+                case 0x003af68a: offI = 535396; offU = 571448; break; //hdd.irx
+                case 0x003aaf8a: offI = 535452; offU = 573496; break; //pfs.irx
+                case 0x001ec6d9: if (headerIMGEnd < 1) { headerIMGEnd = newPos; } if ((headerFlags & 0x02) != 0) { offI = 535628; } break; //demo.dat
+                case 0x001a7629: if (headerIMGEnd < 1) { headerIMGEnd = newPos; } if ((headerFlags & 0x04) != 0) { offI = 535672; } break; //opn.dat
+                case 0x00132c19: if (headerIMGEnd < 1) { headerIMGEnd = newPos; } if ((headerFlags & 0x08) != 0) { offI = 535714; } break; //end.dat
+                case 0x002118c9: if (headerIMGEnd < 1) { headerIMGEnd = newPos; } if ((headerFlags & 0x10) != 0) { offI = 535756; } break; //end2.dat
+                case 0x003118c9: if (headerIMGEnd < 1) { headerIMGEnd = newPos; } if ((headerFlags & 0x20) != 0) { offI = 535800; } break; //end3.dat
+                case 0x00dd0889: if (headerIMGEnd < 1) { headerIMGEnd = newPos; } if ((headerFlags & 0x40) != 0) { offI = 535844; } break; //ffx2.dat
+                default: return;
             }
             if (updateISOHeaders && offI != 0)
             {
                 iso.Position = offI;
-                bw.Write(_ISO9660Number((UInt32) (newPos/2048))); //file LBA
-                bw.Write(_ISO9660Number(newLen)); //file Size
+                bw.Write(_ISO9660Number((UInt32)(newPos / 2048)));//file LBA
+                bw.Write(_ISO9660Number(newLen));//file Size
                 if (offU != 0)
                 {
                     iso.Position = offU;
@@ -821,17 +711,6 @@ namespace KH1FM_Toolkit
 
     internal static class NativeMethods
     {
-        public delegate bool HandlerRoutine(UInt32 t);
-
-        /// <summary>
-        ///     Adds or removes an application-defined HandlerRoutine function from the list of handler functions for the
-        ///     calling process.
-        /// </summary>
-        /// <param name="h">Application-defined HandlerRoutine function to be added or removed. This parameter can be NULL.</param>
-        /// <param name="a">If this parameter is TRUE, the handler is added; if it is FALSE, the handler is removed.</param>
-        /// <returns>True if the function succeeds.</returns>
-        [DllImport("Kernel32")]
-        public static extern bool SetConsoleCtrlHandler(HandlerRoutine h, bool a);
 
         /// <summary>Flushes the buffers of a specified file and causes all buffered data to be written to a file.</summary>
         /// <remarks>
@@ -847,32 +726,9 @@ namespace KH1FM_Toolkit
 
     internal class Program
     {
+        private static readonly PatchManager Patches = new PatchManager();
         private static bool _advanced;
 
-        /// <summary>When true, return properly as fast as possible</summary>
-        private static volatile bool killReceived;
-
-        /// <summary>
-        ///     <para>Function to handle Ctrl+C and clicking the "Close X" button</para>
-        ///     <para>Can be added or removed as a handler as needed</para>
-        /// </summary>
-        private static readonly NativeMethods.HandlerRoutine killHandler = delegate(uint t)
-        {
-            switch (t)
-            {
-                case 0:
-                    goto case 1; /*Ctrl+C*/
-                case 1:
-                    killReceived = true;
-                    return true; /*Ctrl+Break*/
-                case 2: /*CLOSE*/
-                    killReceived = true;
-                    Thread.Sleep(5000);
-                    //Keeps the app from insta-dying for 5 secs, enough time to return below
-                    return true;
-            }
-            return false;
-        };
 
         public static void WriteWarning(string format, params object[] arg)
         {
@@ -893,13 +749,9 @@ namespace KH1FM_Toolkit
             string oextHead)
         {
             int number = 1;
-            Console.WriteLine("Adding header using {0} source", output.writeHeader(oextHead) ? "external" : "internal");
+            Console.WriteLine("Adding header using {0} source", output.writeHeader(oextHead) ? "external" : "internal");//TODO: Delete this Console.WriteLine
             for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
             {
-                if (killReceived)
-                {
-                    return;
-                }
                 IDXEntry entry = input.idxEntries[i];
                 if (entry.hash == 0x0392ebe4)
                 {
@@ -907,7 +759,7 @@ namespace KH1FM_Toolkit
                 } //kingdom.img
                 if (entry.hash == 0x0393eba4) //kingdom.idx
                 {
-                    Console.WriteLine("[KINGDOM: {0}/{1}] KINGDOM.IDX", number, input.idxEntries.Count - 1);
+                    Console.WriteLine("[KINGDOM: {0}/{1}]\tKINGDOM.IDX", number, input.idxEntries.Count - 1);
                         //-1 'cause of the file KINGDOM.IMG
                     number++;
                     output.writeDummyIDX(idxC);
@@ -915,9 +767,14 @@ namespace KH1FM_Toolkit
                 }
 
                 //Loading the patch
-                UInt32 flags;
-                using (Stream s = files.findFile(entry.hash, out flags))
-                {
+                UInt32 flags = 0;
+                PatchManager.Patch patch;
+                Stream s = null;
+                // Could make sure the parents match perfectly, but there's only 1 of every name anyway.
+                // So I'll settle for just making sure the file isn't made for the ISO.
+                if (Patches.patches.TryGetValue(entry.hash, out patch) && /*patch.Parent == parenthash*/
+                    !patch.IsinISO)
+                {s = patch.Stream;}
                     string name;
                     if (!HashList.pairs.TryGetValue(entry.hash, out name))
                     {
@@ -925,9 +782,10 @@ namespace KH1FM_Toolkit
                     }
                     if (s == null)
                     {
+                        entry.flags = flags;
                         if (flags != 0)
                         {
-                            Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tRelinking...", number, input.idxEntries.Count - 1,
+                            Console.WriteLine("[KINGDOM: {0}/{1}]\t{2}\tRelinking...", number, input.idxEntries.Count - 1,
                                 name); //-1 'cause of the file KINGDOM.IMG
                             number++;
                             if (!HashList.pairs.TryGetValue(flags, out name))
@@ -939,7 +797,7 @@ namespace KH1FM_Toolkit
                         }
                         else
                         {
-                            Console.WriteLine("[KINGDOM: {0}/{1}] {2}", number, input.idxEntries.Count - 1, name);
+                            Console.WriteLine("[KINGDOM: {0}/{1}]\t{2}", number, input.idxEntries.Count - 1, name);
                                 //-1 'cause of the file KINGDOM.IMG
                             number++;
                             output.copyFile(entry);
@@ -947,7 +805,8 @@ namespace KH1FM_Toolkit
                     }
                     else
                     {
-                        Console.WriteLine("[KINGDOM: {0}/{1}] {2}\tPatching...", number, input.idxEntries.Count - 1,
+                        if (patch.Compressed) {flags = 1;}
+                        Console.WriteLine("[KINGDOM: {0}/{1}]\t{2}\tPatching...", number, input.idxEntries.Count - 1,
                             name); //-1 'cause of the file KINGDOM.IMG
                         number++;
                         if (flags == 0 && ((ocompress && (entry.flags & 0x01) == 1) || entry.hash == 0x0000171d))
@@ -971,7 +830,6 @@ namespace KH1FM_Toolkit
                             output.importFile(s, entry.hash, flags);
                         }
                     }
-                }
             }
             output.finalize();
             Console.ForegroundColor = ConsoleColor.Green;
@@ -1008,15 +866,13 @@ namespace KH1FM_Toolkit
             return dt;
         }
 
-        private static void ExtractIDX(KH1ISOReader input, bool recurse = false, string tfolder = "export/",
-            string name = "")
+        private static void ExtractIDX(KH1ISOReader input, string tfolder = "export/")
         {
             for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
             {
                 IDXEntry entry = input.idxEntries[i];
                 bool compressed = entry.flags == 1;
                 string name2;
-                string filename;
                 if (!HashList.pairs.TryGetValue(entry.hash, out name2))
                 {
                     name2 = String.Format("@noname/{0:x8}.bin", entry.hash);
@@ -1102,7 +958,7 @@ namespace KH1FM_Toolkit
                 {
                     Console.WriteLine("[KINGDOM: {0,4}/{1}]\tExtracting {2}", i, input.idxEntries.Count - 1, name2);
                 }
-                filename = tfolder + "/KINGDOM/" + name2;
+                string filename = tfolder + "/KINGDOM/" + name2;
                 Directory.CreateDirectory(Path.GetDirectoryName(filename));
                 bool adSize = _advanced;
                 byte[] file = input.readFile(entry);
@@ -1114,7 +970,7 @@ namespace KH1FM_Toolkit
                     }
                     try
                     {
-                        byte[] decompressed = KH1Compressor.decompress2(file, adSize);
+                        byte[] decompressed = KH1Compressor.decompress(file, adSize);
                         File.WriteAllBytes(filename, decompressed);
                     }
                     catch (Exception e)
@@ -1168,7 +1024,7 @@ namespace KH1FM_Toolkit
                         iso.CopyFile(file, output);
                     }
                 }
-                ExtractIDX(input, true); //, tfolder + "" + idxnames[i] + "/", idxnames[i]
+                ExtractIDX(input); //, tfolder + "" + idxnames[i] + "/", idxnames[i]
             }
         }
 
@@ -1188,7 +1044,7 @@ namespace KH1FM_Toolkit
                 Console.Title = KH1ISOReader.program.ProductName + " " + KH1ISOReader.program.FileVersion + " [" +
                                 KH1ISOReader.program.CompanyName + "]";
                 bool ocompress = true, oupdateHeads = true, extract = false;
-                string iso = "", oextHead = "", NewIso = "";
+                string iso = "", oextHead = "", NewIso;
 
                 #region Arguments
 
@@ -1229,6 +1085,10 @@ namespace KH1FM_Toolkit
                                 if (args[i].EndsWith(".iso", StringComparison.InvariantCultureIgnoreCase))
                                 {
                                     iso = args[i];
+                                }
+                                else if (args[i].EndsWith(".kh1patch", StringComparison.InvariantCultureIgnoreCase))
+                                {
+                                    Patches.AddPatch(args[i]);
                                 }
                             }
                             break;
@@ -1291,9 +1151,7 @@ namespace KH1FM_Toolkit
 
                     #endregion
 
-                    // Enable the close handler
                     NewIso = Path.ChangeExtension(iso, "NEW.ISO");
-                    NativeMethods.SetConsoleCtrlHandler(killHandler, true);
                     using (var input = new KH1ISOReader(iso))
                     {
                         if (extract)
@@ -1316,9 +1174,6 @@ namespace KH1FM_Toolkit
                                 throw;
                             }
                         }
-
-                        // Disable the close handler
-                        NativeMethods.SetConsoleCtrlHandler(killHandler, false);
                     }
                 }
             }

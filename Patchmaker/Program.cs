@@ -1,211 +1,690 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Globalization;
 using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using GovanifY.Utility;
 using KH1FM_Toolkit;
+using KHCompress;
+using ISOTP = KH1FM_Toolkit.Program;
 
 namespace KH1_Patch_Maker
 {
-    class Program
+    //KH2 PATCH FILE FORMAT WITH 2 CHANGES: KH2P > KH1P AND NOT WRITING THE UNCOMPRESSED LENGTH OF THE FILE(NOT NEEDED)
+    internal class PatchFile
     {
-        static UInt32 calcHash(byte[] name){
-            int v0 = 0;
-            uint i = 0;
-            byte c;
-            while ((c = name[i++]) != 0)
+        public const uint Signature = 0x5031484B;
+        public const uint Signaturec = 0x4332484B;
+        private readonly List<byte[]> Changelogs = new List<byte[]>();
+        public List<byte[]> Credits = new List<byte[]>();
+        public List<FileEntry> Files = new List<FileEntry>();
+        public uint Version = 1;
+        private byte[] _Author = { 0 };
+        private byte[] _OtherInfo = { 0 };
+        public bool convertLinebreaks = true;
+
+        public string Author
+        {
+            get { return Encoding.ASCII.GetString(_Author); }
+            set { _Author = Encoding.ASCII.GetBytes(value + '\0'); }
+        }
+
+        public string OtherInfo
+        {
+            get { return Encoding.ASCII.GetString(_OtherInfo); }
+            set
             {
-                v0 = (2 * v0) ^ (((int)c << 16) % 69665);
+                if (convertLinebreaks)
+                {
+                    value = value.Replace("\\n", "\r\n");
+                }
+                _OtherInfo = Encoding.ASCII.GetBytes(value + '\0');
             }
-            return (uint)v0;
         }
-        static UInt32 calcHash(string name) { return calcHash(Encoding.ASCII.GetBytes(name + '\0')); }
-        static bool yesnoInput(string prompt)
-        {
-            Console.Write(prompt+" [y,n] ");
-            bool ret = Console.ReadKey().Key.ToString() == "Y";
-            Console.WriteLine("");
-            return ret;
-        }
-        static UInt32 uintFromInput(string prompt, UInt32 def = 0)
-        {
-            UInt32 val = 0;
-            do
-            {
-                Console.Write("{0} [blank={1}]: ",prompt,def);
-                string input = Console.ReadLine().Trim();
-                if(input.Length == 0 && def > 0){return def;}
-                else if (UInt32.TryParse(input, out val) && val > 0){return val;}
-                else{Console.WriteLine("  Failed to parse that as a number!");}
-            } while (true);
-        }
-        static UInt32 hashFromInput(string prompt, out string input, KH1FM_Toolkit.KH1ISOReader iso = null, bool allowFail = false)
-        {
-            UInt32 hash = 0;
-            do
-            {
-                Console.Write(prompt+" [hex or filename]: ");
-                input = Console.ReadLine().Trim();
-                if (!UInt32.TryParse(input, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out hash))
-                {
-                    foreach (KeyValuePair<UInt32, string> pair in KH1FM_Toolkit.HashList.pairs)
-                    {
-                        if (input.Equals(pair.Value)) { hash = pair.Key; break; }
-                    }
-                    if (hash == 0) { input = ""; }
-                }
-                else
-                {
-                    if (!KH1FM_Toolkit.HashList.pairs.TryGetValue(hash, out input)) { input = String.Format("@noname/{0:x8}.bin", hash); }
-                    if (iso != null && iso.idxEntries.Find(a => a.hash == hash) == null && !yesnoInput("WARNING: That file isn't in KH.ISO; Use it anyway?"))
-                    {
-                        hash = 0; continue;
-                    }
-                }
-                if (allowFail || hash != 0) { return hash; }
-                else
-                {
-                    Console.WriteLine("  Failed to parse that as hex or a filename in Hashpairs!");
-                }
-            } while (true);
-            //Console.Write("WARNING: That file isn't in HashList! Include it anyway? [y,n] "); if (Console.ReadKey().KeyChar != 'y') { ++pFiles; continue; }
 
-        }
-        static UInt32 hashFromInput(string prompt, KH1FM_Toolkit.KH1ISOReader iso = null)
+        public void AddChange(string s)
         {
-            string tmp; return hashFromInput(prompt, out tmp, iso);
-        }
-        static readonly string programVer = System.Diagnostics.FileVersionInfo.GetVersionInfo(System.Reflection.Assembly.GetEntryAssembly().Location).FileVersion;
-        public static void Mainp(string[] args)
-        {
-            string pName = null;
-            try
+            if (convertLinebreaks)
             {
-                if (BitConverter.IsLittleEndian != true) { throw new PlatformNotSupportedException("This program relies on running as little endian"); }
-                KH1FM_Toolkit.HashList.loadHashPairs();
-                Console.Title = KH1ISOReader.program.ProductName + " " + KH1ISOReader.program.FileVersion + " [" + KH1ISOReader.program.CompanyName + "]";
-                string oisoName = "kh.iso",
-                    pAuthor = null,
-                    tS;
-                UInt32 pVersion = 0;
-                for (int i = 0, argc = args.Length; i < argc; ++i)
+                s = s.Replace("\\n", "\r\n");
+            }
+            Changelogs.Add(Encoding.ASCII.GetBytes(s + '\0'));
+        }
+
+        public void AddCredit(string s)
+        {
+            if (convertLinebreaks)
+            {
+                s = s.Replace("\\n", "\r\n");
+            }
+            Credits.Add(Encoding.ASCII.GetBytes(s + '\0'));
+        }
+
+        public void WriteDecrypted(Stream stream)
+        {
+            stream.Position = 0;
+            uint changeLen = 0, creditLen = 0;
+            changeLen = Changelogs.Aggregate(changeLen, (current, b) => current + (4 + (uint)b.Length));
+            creditLen = Credits.Aggregate(creditLen, (current, b) => current + (4 + (uint)b.Length));
+            using (var bw = new BinaryStream(stream, leaveOpen: true))
+            {
+                uint i;
+                bw.Write(Signature);
+                bw.Write((uint)(16 + _Author.Length));
+                bw.Write((uint)(16 + _Author.Length + 16 + changeLen + 4 + creditLen + _OtherInfo.Length));
+                bw.Write(Version);
+                bw.Write(_Author);
+                bw.Write((uint)12);
+                bw.Write(16 + changeLen);
+                bw.Write(16 + changeLen + 4 + creditLen);
+                bw.Write(i = (uint)Changelogs.Count);
+                i *= 4;
+                foreach (var b in Changelogs)
                 {
-                    switch (args[i].ToLower())
+                    bw.Write(i);
+                    i += (uint)b.Length;
+                }
+                foreach (var b in Changelogs)
+                {
+                    bw.Write(b);
+                }
+                bw.Write(i = (uint)Credits.Count);
+                i *= 4;
+                foreach (var b in Credits)
+                {
+                    bw.Write(i);
+                    i += (uint)b.Length;
+                }
+                foreach (var b in Credits)
+                {
+                    bw.Write(b);
+                }
+                bw.Write(_OtherInfo);
+                bw.Write((uint)Files.Count);
+
+                //Check total size to add
+                long fileTotal = 0;
+                try
+                {
+                    fileTotal = Files.Where(file => file.Relink == 0)
+                        .Aggregate(fileTotal, (current, file) => checked(current + file.Data.Length));
+                }
+                catch (OverflowException)
+                {
+                    ISOTP.WriteError(
+                        "That's WAY too much file data... is there even that much in the gameo.O?\r\nTry to split up the patch...");
+                    return;
+                }
+                Stream filedata = null;
+                string filename = null;
+                //Use a MemoryStream if we can, much cleaner\faster
+                if (fileTotal <= int.MaxValue)
+                {
+                    try
                     {
-                        case "-name":
-                            pName = args[++i].Trim();
-                            break;
-                        case "-version":
-                            UInt32.TryParse(args[++i].Trim(), out pVersion);
-                            break;
-                        case "-author":
-                            pAuthor = args[++i].Trim();
-                            break;
-                        default:
-                            if (oisoName.Length == 0 && args[i].EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
-                            {
-                                oisoName = args[i];
-                            }
-                            break;
+                        filedata = new MemoryStream((int)fileTotal);
+                    }
+                    catch (OutOfMemoryException)
+                    {
+                        filedata = null;
+                        ISOTP.WriteWarning("Failed to allocate enough memory, trying temporary file fallback...");
                     }
                 }
-                if (oisoName.Length == 0) { oisoName = "kh.iso"; }
-
-                if (pName == null)
+                //If we can't use a MemStream (or that failed), try a FileStream as a temp file
+                if (filedata == null)
                 {
-                    Console.Write("Patch filename [output]: ");
-                    pName = Console.ReadLine().Trim();
+                    filename = Path.GetTempFileName();
+                    Console.WriteLine("Wow there's a lot of file data! Using a temporary file now!\r\nUsing {0}",
+                        filename);
+                    filedata = File.Open(filename, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
                 }
-                if (pName.Length == 0) { pName = "output.kh1patch"; } else { pName += ".kh1patch"; }
-                if (File.Exists(pName))
+                using (filedata)
                 {
-                    Console.WriteLine("{0} already exists!", pName); pName = "";
-                }
-                using (BinaryWriter bw = new BinaryWriter(File.Open(pName, FileMode.CreateNew, FileAccess.Write, FileShare.None)))
-                using (MemoryStream ms = new MemoryStream())
-                {
-                    KH1FM_Toolkit.KH1ISOReader input;
-                    try { input = new KH1FM_Toolkit.KH1ISOReader(oisoName); }
-                    catch { input = null; }
-
-                    bw.Write(0x5031484Bu);  //Magic
-                    //Version
-                    if (pVersion == 0) { pVersion = uintFromInput("Patch version", 1); }
-                    bw.Write(pVersion);
-                    //# of Files
-                    int pFiles = (int)uintFromInput("# of files", 1);
-                    bw.Write(pFiles);
-                    //Author
-                    if (pAuthor == null) { Console.Write("Author name []: "); pAuthor = Console.ReadLine().Trim(); }
-                    bw.Write(pAuthor);
-
-                    long dataOff = bw.BaseStream.Position + pFiles*16;
-                    while (--pFiles >= 0)
+                    i = (uint)(stream.Position + Files.Count * 92);
+                    foreach (FileEntry file in Files)
                     {
-                        pVersion = hashFromInput("\nFile to add", out tS, input);
-                        UInt32 relinkU;
-                        relinkU = hashFromInput("Relink to this hash? [blank=none]", out pAuthor, input, true);
-                        if (relinkU != 0)
+                        bw.Write(file.Hash);
+                        if (file.Relink != 0)
                         {
-                            bw.Write(pVersion);
-                            bw.Write(0);
-                            bw.Write(0);
-                            bw.Write(relinkU);
-                            Console.WriteLine("Added relink of {0:X8} to {1:X8}", pVersion, relinkU);
-                            continue;
-                        }
-                        if (!File.Exists("import/" + tS))
-                        {
-                            Console.Write("ERROR: Cannot find import/" + tS); ++pFiles; continue;
-                        }
-
-                        bool compress = false; KH1FM_Toolkit.IDXEntry entry;
-                        if (input != null && (entry = input.idxEntries.Find(a => a.hash == pVersion)) != null)
-                        {
-                            if ((entry.flags & 0x1) == 1)
-                            {
-                                compress = true;
-                            }
+                            bw.Write((uint)0);
+                            bw.Write((uint)0);
+                            bw.Write((uint)0);
+                            bw.Write(file.ParentHash);
+                            bw.Write(file.Relink);
+                            bw.Write((uint)0);
                         }
                         else
                         {
-                            compress = yesnoInput("Compress file?");
-                        }
-                        byte[] bytes = File.ReadAllBytes("import/" + tS);
-                        if (compress)
-                        {
-                            Console.Write("Compressing...");
-                            try
+                            uint cSize;
+                            file.Data.Position = 0;
+                            if (file.IsCompressed)
                             {
-                                bytes = KHCompress.KH1Compressor.compress(bytes);
+                                try
+                                {
+                                    var input = new byte[file.Data.Length];
+                                    file.Data.Read(input, 0, (int)file.Data.Length);
+                                    Console.Write("Compressing {0}: ",
+                                        file.name ?? file.Hash.ToString("X8"));
+                                    byte[] output = KH1Compressor.compress(input);
+                                    uint cSizeSectors = (uint)Math.Ceiling((double)output.Length / 2048) - 1;
+                                    if (output.LongLength > int.MaxValue)
+                                    {
+                                        throw new NotSupportedException(
+                                            "Compressed data too big to store (Program limitation)");
+                                    }
+                                    if (cSizeSectors > 0x2FFF)
+                                    {
+                                        throw new NotSupportedException(
+                                            "Compressed data too big to store (IDX limitation)");
+                                    }
+                                    if ((cSizeSectors & 0x1000u) == 0x1000u)
+                                    {
+                                        throw new NotSupportedException(
+                                            "Compressed data size hit 0x1000 bit limitation (IDX limitation)");
+                                    }
+                                    cSize = (uint)output.Length;
+                                    filedata.Write(output, 0, output.Length);
+                                }
+                                catch (NotCompressableException e)
+                                {
+                                    string es = "ERROR: Failed to compress file: " + e.Message;
+                                    ISOTP.WriteWarning(es);
+                                    Console.Write("Add it without compressing? [Y/n] ");
+                                    if (Program.GetYesNoInput())
+                                    {
+                                        file.IsCompressed = false;
+                                        cSize = (uint)file.Data.Length;
+                                        file.Data.Position = 0; //Ensure at beginning
+                                        file.Data.CopyTo(filedata);
+                                    }
+                                    else
+                                    {
+                                        throw new NotCompressableException(es, e);
+                                    }
+                                }
                             }
-                            catch (KHCompress.NotCompressableException e)
+                            else
                             {
-                                compress = false;
-                                Console.WriteLine("\nCannot compress file: {0}", e.Message);
+                                Console.WriteLine("Adding {0}", file.name ?? file.Hash.ToString("X8"));
+                                cSize = (uint)file.Data.Length;
+                                file.Data.Position = 0; //Ensure at beginning
+                                file.Data.CopyTo(filedata);
                             }
+                            if (!file.IsCompressed &&
+                                (((uint)Math.Ceiling((double)cSize / 2048) - 1) & 0x1000u) == 0x1000u)
+                            {
+                                ISOTP.WriteWarning(
+                                    "Data size hit 0x1000 bit limitation, but this file may be OK if it's streamed.");
+                            }
+                            bw.Write(i);
+                            i += cSize;
+                            bw.Write(cSize);
+                            bw.Write(file.ParentHash);
+                            bw.Write((uint)0);
+                            bw.Write((uint)(file.IsCompressed ? 1 : 0));
                         }
-                        bw.Write(pVersion);
-                        bw.Write(compress ? 1u : 0);
-                        bw.Write((UInt32)(dataOff + ms.Position));
-                        bw.Write((UInt32)(bytes.Length));
-                        ms.Write(bytes, 0, bytes.Length);
-                        Console.WriteLine("\nAdded {0:X8}", pVersion);
+                        bw.Write((uint)(file.IsNewFile ? 1 : 0)); //Custom
+                        //Padding
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
+                        bw.Write((uint)0);
                     }
-                    ms.Position = 0;
-                    ms.WriteTo(bw.BaseStream);
-                    Console.WriteLine("\n\nDone!");
-                    if (input != null) { input.Dispose(); }
+                    filedata.Position = 0; //Ensure at beginning
+                    filedata.CopyTo(stream);
+                }
+                //If we used a temp file, delete it
+                if (filename != null)
+                {
+                    File.Delete(filename);
+                }
+            }
+        }
+
+        public void Write(Stream stream)
+        {
+                byte[] data;
+                using (var ms = new MemoryStream())
+                {
+                    WriteDecrypted(ms);
+                    data = ms.ToArray();
+                }
+                PatchManager.NGYXor(data);
+                stream.Write(data, 0, data.Length);
+        }
+
+        public class FileEntry : IDisposable
+        {
+            /// <summary>
+            ///     <para>File data, uncompressed</para>
+            ///     <para>NULL if relinking</para>
+            /// </summary>
+            public Stream Data = null;
+
+            /// <summary>Target file hash</summary>
+            public uint Hash = 0;
+
+            public bool IsCompressed = false;
+
+            /// <summary>
+            ///     <para>Custom field</para>
+            ///     <para>Specified whether the file should be ADDED to the IDX if it's missing</para>
+            /// </summary>
+            public bool IsNewFile = false;
+
+            /// <summary>Parent IDX Hash</summary>
+            public uint ParentHash = 0;
+
+            /// <summary>Relink to this file</summary>
+            public uint Relink = 0;
+
+            /// <summary>Filename, used in UI</summary>
+            public string name = null;
+
+            public void Dispose()
+            {
+                if (Data != null)
+                {
+                    Data.Dispose();
+                    Data = null;
+                }
+            }
+        }
+    }
+
+    internal class Program
+    {
+        //Define a bool who's define if the Xeeynamo's encryption is used. She's false until the command -xeey is used
+        public static bool DoXeey = false;
+        public static bool NewFormat = true;
+        public static bool Compression = false;
+        public static bool hvs = false;
+
+        private static DateTime RetrieveLinkerTimestamp()
+        {
+            string filePath = Assembly.GetCallingAssembly().Location;
+            const int c_PeHeaderOffset = 60;
+            const int c_LinkerTimestampOffset = 8;
+            var b = new byte[2048];
+            Stream s = null;
+
+            try
+            {
+                s = new FileStream(filePath, FileMode.Open, FileAccess.Read);
+                s.Read(b, 0, 2048);
+            }
+            finally
+            {
+                if (s != null)
+                {
+                    s.Close();
+                }
+            }
+
+            int i = BitConverter.ToInt32(b, c_PeHeaderOffset);
+            int secondsSince1970 = BitConverter.ToInt32(b, i + c_LinkerTimestampOffset);
+            var dt = new DateTime(1970, 1, 1, 0, 0, 0);
+            dt = dt.AddSeconds(secondsSince1970);
+            dt = dt.AddHours(TimeZone.CurrentTimeZone.GetUtcOffset(dt).Hours);
+            return dt;
+        }
+
+        private static uint GetFileAsInput(out string name, out bool blank)
+        {
+            string inp = Console.ReadLine().Replace("\"", "").Trim();
+            uint hash;
+            name = "";
+            if (inp.Length == 0)
+            {
+                blank = true;
+                return 0;
+            }
+            blank = false;
+            if (inp.StartsWith("0x", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (uint.TryParse(inp.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hash))
+                {
+                    name = HashList.NameFromHash(hash);
+                }
+                else
+                {
+                    ISOTP.WriteWarning("Error: Failed to parse as hex number.");
+                    return 0;
+                }
+            }
+            else
+            {
+                hash = PatchManager.calcHash(inp);
+                //Check hashpairs anyway, and warn if something unexpected returns
+                if (!hvs)
+                {
+                    if (!HashList.pairs.TryGetValue(hash, out name))
+                    {
+                        Console.WriteLine(" Warning: Filename not found into the Hashlist.");
+                    }
+                    else if (name != inp)
+                    {
+                        ISOTP.WriteWarning(" Warning: Hash conflict with {0}; both contain the same hash.", name);
+                    }
+                    name = inp;
+                }
+            }
+            return hash;
+        }
+
+        private static uint GetFileHashAsInput(out string name)
+        {
+            bool blank;
+            return GetFileAsInput(out name, out blank);
+        }
+
+        public static bool GetYesNoInput()
+        {
+            int cL = Console.CursorLeft, cT = Console.CursorTop;
+            do
+            {
+                string inp = Console.ReadLine();
+                if (inp == "Y" || inp == "y")
+                {
+                    return true;
+                }
+                if (inp == "N" || inp == "n")
+                {
+                    return false;
+                }
+                Console.SetCursorPosition(cL, cT);
+                Console.Beep();
+            } while (true);
+        }
+
+        internal static void Mainp(string[] args)
+        {
+            bool log = false;
+
+            Console.Title = KH1ISOReader.program.ProductName + " " + KH1ISOReader.program.FileVersion + " [" +
+                            KH1ISOReader.program.CompanyName + "]";
+            var patch = new PatchFile();
+            bool encrypt = true,
+                batch = false,
+                authorSet = false,
+                verSet = false,
+                changeSet = false,
+                creditSet = false,
+                otherSet = false;
+            string output = "output.kh1patch";
+            for (int i = 0; i < args.Length; ++i)
+            {
+                switch (args[i].ToLowerInvariant())
+                {
+                    case "-xeeynamo":
+                        DoXeey = true;
+                        ISOTP.WriteWarning("Using Xeeynamo's encryption!(DESTRUCTIVE METHOD)");
+                        break;
+                    case "-batch":
+                        batch = true;
+                        break;
+                    case "-log":
+                        log = true;
+                        break;
+#if DEBUG
+                    case "-decrypted":
+                        if (encrypt)
+                        {
+                            encrypt = false;
+                            Console.WriteLine("Writing in decrypted mode!");
+                        }
+                        break;
+#endif
+                    case "-hashverskip":
+                        hvs = true;
+                        break;
+                    case "-version":
+                        if (!uint.TryParse(args[++i].Trim(), out patch.Version))
+                        {
+                            patch.Version = 1;
+                        }
+                        else
+                        {
+                            verSet = true;
+                        }
+                        break;
+                    case "-author":
+                        patch.Author = args[++i];
+                        authorSet = true;
+                        break;
+                    case "-other":
+                        patch.OtherInfo = args[++i];
+                        otherSet = true;
+                        break;
+                    case "-changelog":
+                        patch.AddChange(args[++i]);
+                        break;
+                    case "-skipchangelog":
+                        changeSet = true;
+                        break;
+                    case "-credits":
+                        patch.AddCredit(args[++i]);
+                        break;
+                    case "-skipcredits":
+                        creditSet = true;
+                        break;
+                    case "-output":
+                        output = args[++i];
+                        if (!output.EndsWith(".kh2patch", StringComparison.InvariantCultureIgnoreCase))
+                        {
+                            output += ".kh2patch";
+                        }
+                        break;
+                }
+            }
+            //TODO MENU
+            if (log)
+            {
+                var filestream = new FileStream("log.log", FileMode.Create);
+                var streamwriter = new StreamWriter(filestream);
+                streamwriter.AutoFlush = true;
+                Console.SetOut(streamwriter);
+                Console.SetError(streamwriter);
+            }
+            if (!batch)
+            {
+                Console.ForegroundColor = ConsoleColor.Gray;
+                DateTime builddate = RetrieveLinkerTimestamp();
+                Console.Write("{0}\nBuild Date: {2}\nVersion {1}", KH1ISOReader.program.ProductName,
+                    KH1ISOReader.program.FileVersion, builddate);
+                Console.ResetColor();
+#if DEBUG
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write("\nPRIVATE RELEASE\n");
+                Console.ResetColor();
+#else
+                Console.Write("\nPUBLIC RELEASE\n");
+#endif
+                Console.ForegroundColor = ConsoleColor.DarkMagenta;
+                Console.Write("\nProgrammed by {0}\nhttp://www.govanify.blogspot.fr\nhttp://www.govanify.x10host.com",
+                    KH1ISOReader.program.CompanyName);
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.Write(
+                    "\n\nThis tool is able to create patches for the software KH1FM_Toolkit.\nHe can add files using the internal compression of the game \nKingdom Hearts 1(Final Mix), relink files to their idx, recreate\nthe iso without size limits and without corruption.\nThis patch system is the best ever made for this game atm.\n");
+                HashList.loadHashPairs(printInfo: true);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write("\nPress enter to run using the file:");
+                Console.ResetColor();
+                Console.Write(" {0}", output);
+
+                if (!batch)
+                {
+                    Console.ReadLine();
+                }
+            }
+            if (!authorSet)
+            {
+                Console.Write("Enter author's name: ");
+                patch.Author = Console.ReadLine().Trim();
+            }
+            if (!verSet)
+            {
+                Console.Write("Enter revision number: ");
+                while (!uint.TryParse(Console.ReadLine().Trim(), out patch.Version))
+                {
+                    ISOTP.WriteWarning("\nInvalid number! ");
+                }
+            }
+            if (!changeSet)
+            {
+                Console.WriteLine("Enter changelog lines here (leave blank to continue):");
+                do
+                {
+                    string inp = Console.ReadLine().Trim();
+                    if (inp.Length == 0)
+                    {
+                        break;
+                    }
+                    patch.AddChange(inp);
+                } while (true);
+            }
+            if (!creditSet)
+            {
+                Console.WriteLine("Enter credits here (leave blank to continue):");
+                do
+                {
+                    string inp = Console.ReadLine().Trim();
+                    if (inp.Length == 0)
+                    {
+                        break;
+                    }
+                    patch.AddCredit(inp);
+                } while (true);
+            }
+            if (!otherSet)
+            {
+                Console.Write("Other information (leave blank to continue): ");
+                patch.OtherInfo = Console.ReadLine().Trim();
+            }
+#if DEBUG
+            Console.WriteLine("Filenames may be formatted as text (al00_01.bin) or hash (0x0075a93d).");
+#endif
+            do
+            {
+                var file = new PatchFile.FileEntry();
+                Console.Write("\nEnter filename: ");
+                string name, rel;
+                //Target file
+                file.Hash = GetFileAsInput(out name, out otherSet);
+                if (otherSet)
+                {
+                    break;
+                }
+                Console.WriteLine("  Using \"{0}\" for {1:X8}", name, file.Hash);
+                //Relink
+                Console.Write("Relink to this filename(ex: 000al.idx) [Blank for none]: ");
+                file.Relink = GetFileHashAsInput(out rel);
+                if (file.Relink == 0)
+                {
+                    try
+                    {
+                        file.Data = File.Open(name, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    }
+                    catch (Exception e)
+                    {
+                        ISOTP.WriteWarning("Failed opening the file: " + e.Message);
+                        continue;
+                    }
+                    file.name = Path.GetFileName(name);
+                    if (file.Data.Length > int.MaxValue || file.Data.Length < 10)
+                    {
+                        ISOTP.WriteWarning("Too {0} to compress. Press enter.",
+                            (file.Data.Length < 10 ? "small" : "big"));
+                        //Do this so the line count is the same whether we can compress or not.
+                        Console.ReadLine();
+                    }
+                    else
+                    {
+                        //Compress
+                        Console.Write("Compress this file? [Y/n] ");
+                        file.IsCompressed = GetYesNoInput();
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("  Using \"{0}\" for {1:X8}", rel, file.Relink);
+                }
+                //Parent
+                Console.Write("Parent compressed file [Leave blank for KINGDOM]: ");
+                file.ParentHash = GetFileHashAsInput(out rel);
+                if (rel.Equals("KINGDOM", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    file.ParentHash = 0;
+                }
+                else if (rel.Equals("ISO", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    file.ParentHash = 1;
+                }
+                else
+                {
+                    switch (file.ParentHash)
+                    {
+                        case 0:
+                            rel = "KINGDOM";
+                            break;
+                        case 1:
+                            rel = "ISO";
+                            break;
+                    }
+                }
+                Console.WriteLine("  Using \"{0}\" for {1:X8}", rel, file.ParentHash);
+                //IsNew
+                Console.Write("Should this file be added if he's not in the game? [y/N] ");
+                file.IsNewFile = GetYesNoInput();
+                patch.Files.Add(file);
+            } while (true);
+            try
+            {
+                //TODO Compress(buffer>magic>Compress>Write to output). Files are already compressed, I need to look at this later
+                using (FileStream fs = File.Open(output, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    if (encrypt)
+                    {
+                        patch.Write(fs);
+                    }
+                    else
+                    {
+                        patch.WriteDecrypted(fs);
+                    }
                 }
             }
             catch (Exception e)
             {
-                if (pName != null && pName.Length != 0) { File.Delete(pName); }
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("A fatal error has occured: {0}", e.Message);
-                Console.ResetColor();
-                Console.WriteLine("\nType: {0}\n{1}\n", e.GetType(), e.StackTrace);
+                ISOTP.WriteWarning("Failed to save file: " + e.Message);
+                ISOTP.WriteWarning(e.StackTrace);
+                try
+                {
+                    File.Delete("output.kh1patch");
+                }
+                catch (Exception z)
+                {
+                    ISOTP.WriteWarning("Failed to delete file: " + z.Message);
+                }
             }
-            Console.Write("Press enter to exit..."); Console.ReadLine();
+            if (!batch)
+            {
+                Console.Write("Press enter to exit...");
+                Console.ReadLine();
+                Environment.Exit(0);
+            }
         }
     }
 }
