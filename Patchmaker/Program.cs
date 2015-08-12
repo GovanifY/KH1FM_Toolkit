@@ -6,23 +6,71 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using GovanifY.Utility;
-using KH1FM_Toolkit;
 using KHCompress;
 using ISOTP = KH1FM_Toolkit.Program;
-
+/* KH1 Patch File Format
+ * 0    UInt32  Magic 0x5032484B "KH1P"
+ * 4    UInt32  0x10000000 + Author Length
+ * 8    UInt32  0x10000000 + Author Length + 0x10000000 + Changelog Length + 40000000 + Credits Length + Other Info Length
+ * 12   UInt32  Version number of the patch
+ * 13   string  Author
+ * ?    UInt32  0x0C000000
+ * ?    UInt32  0x10000000 + Changelog Length
+ * ?    UInt32  0x10000000 + Changelog Length + 40000000 + Credits Length
+ * ?    UInt32  Number of lines of the changelog 
+ *   
+ *      for each changelog lines:
+ *          UInt32  "i" 0x04000000
+ *          Increase i by the length of the next line
+ *          string Changelog line
+ *          
+ * ?    UInt32  Number of lines of the credits
+ * 
+ *      for each changelog lines:
+ *          UInt32  "i" 0x04000000
+ *          Increase i by the length of the next line
+ *          string Changelog line
+ *          
+ * ?    string  Other infos
+ * ?    UInt32  Number of files
+ *      i = (Position of the stream of the patch + Number of files) *92
+ *       for each non-relinking file:
+ *          UInt32  hashed filename
+ *          UInt32  i + Compressed size of the file
+ *          UInt32  Compressed size of the file
+ *          UInt32  Length of the uncompressed file
+ *          UInt32  Parent Hash (KH2, OVL, etc...)
+ *          UInt32  0x00000000
+ *          UInt32  If file is compressed 0x01000000, otherwise 0x00000000
+ *          UInt32  If file should be added if he's not in the game 0x01000000, otherwise 0x00000000
+ *          UInt32(x15) 0x00000000(padding)
+ *          byte*?  Raw file data
+ * 
+ *      for each relinked file:
+ *          UInt32  0x00000000
+ *          UInt32  0x00000000
+ *          UInt32  0x00000000
+ *          UInt32 Hash of the file
+ *          UInt32 Hash of the filename to relink to
+ *          UInt32  0x00000000
+ * 
+ * 
+ * Notes:
+ * All files which needs to be compressed are already compressed into the patch file
+ * Relinking a file will copy the content of the original file to the new file
+ */
 namespace KH1_Patch_Maker
 {
-    //KH2 PATCH FILE FORMAT WITH 2 CHANGES: KH2P > KH1P AND NOT WRITING THE UNCOMPRESSED LENGTH OF THE FILE(NOT NEEDED)
     internal class PatchFile
     {
+        bool uselog = false;
         public const uint Signature = 0x5031484B;
-        public const uint Signaturec = 0x4332484B;
         private readonly List<byte[]> Changelogs = new List<byte[]>();
         public List<byte[]> Credits = new List<byte[]>();
         public List<FileEntry> Files = new List<FileEntry>();
         public uint Version = 1;
-        private byte[] _Author = { 0 };
-        private byte[] _OtherInfo = { 0 };
+        private byte[] _Author = {0};
+        private byte[] _OtherInfo = {0};
         public bool convertLinebreaks = true;
 
         public string Author
@@ -66,43 +114,43 @@ namespace KH1_Patch_Maker
         {
             stream.Position = 0;
             uint changeLen = 0, creditLen = 0;
-            changeLen = Changelogs.Aggregate(changeLen, (current, b) => current + (4 + (uint)b.Length));
-            creditLen = Credits.Aggregate(creditLen, (current, b) => current + (4 + (uint)b.Length));
+            changeLen = Changelogs.Aggregate(changeLen, (current, b) => current + (4 + (uint) b.Length));
+            creditLen = Credits.Aggregate(creditLen, (current, b) => current + (4 + (uint) b.Length));
             using (var bw = new BinaryStream(stream, leaveOpen: true))
             {
                 uint i;
                 bw.Write(Signature);
-                bw.Write((uint)(16 + _Author.Length));
-                bw.Write((uint)(16 + _Author.Length + 16 + changeLen + 4 + creditLen + _OtherInfo.Length));
+                bw.Write((uint) (16 + _Author.Length));
+                bw.Write((uint) (16 + _Author.Length + 16 + changeLen + 4 + creditLen + _OtherInfo.Length));
                 bw.Write(Version);
                 bw.Write(_Author);
-                bw.Write((uint)12);
+                bw.Write((uint) 12);
                 bw.Write(16 + changeLen);
                 bw.Write(16 + changeLen + 4 + creditLen);
-                bw.Write(i = (uint)Changelogs.Count);
+                bw.Write(i = (uint) Changelogs.Count);
                 i *= 4;
                 foreach (var b in Changelogs)
                 {
                     bw.Write(i);
-                    i += (uint)b.Length;
+                    i += (uint) b.Length;
                 }
                 foreach (var b in Changelogs)
                 {
                     bw.Write(b);
                 }
-                bw.Write(i = (uint)Credits.Count);
+                bw.Write(i = (uint) Credits.Count);
                 i *= 4;
                 foreach (var b in Credits)
                 {
                     bw.Write(i);
-                    i += (uint)b.Length;
+                    i += (uint) b.Length;
                 }
                 foreach (var b in Credits)
                 {
                     bw.Write(b);
                 }
                 bw.Write(_OtherInfo);
-                bw.Write((uint)Files.Count);
+                bw.Write((uint) Files.Count);
 
                 //Check total size to add
                 long fileTotal = 0;
@@ -124,7 +172,7 @@ namespace KH1_Patch_Maker
                 {
                     try
                     {
-                        filedata = new MemoryStream((int)fileTotal);
+                        filedata = new MemoryStream((int) fileTotal);
                     }
                     catch (OutOfMemoryException)
                     {
@@ -142,18 +190,18 @@ namespace KH1_Patch_Maker
                 }
                 using (filedata)
                 {
-                    i = (uint)(stream.Position + Files.Count * 92);
+                    i = (uint) (stream.Position + Files.Count*92);
                     foreach (FileEntry file in Files)
                     {
                         bw.Write(file.Hash);
                         if (file.Relink != 0)
                         {
-                            bw.Write((uint)0);
-                            bw.Write((uint)0);
-                            bw.Write((uint)0);
+                            bw.Write((uint) 0);
+                            bw.Write((uint) 0);
+                            bw.Write((uint) 0);
                             bw.Write(file.ParentHash);
                             bw.Write(file.Relink);
-                            bw.Write((uint)0);
+                            bw.Write((uint) 0);
                         }
                         else
                         {
@@ -164,11 +212,11 @@ namespace KH1_Patch_Maker
                                 try
                                 {
                                     var input = new byte[file.Data.Length];
-                                    file.Data.Read(input, 0, (int)file.Data.Length);
+                                    file.Data.Read(input, 0, (int) file.Data.Length);
                                     Console.Write("Compressing {0}: ",
                                         file.name ?? file.Hash.ToString("X8"));
                                     byte[] output = KH1Compressor.compress(input);
-                                    uint cSizeSectors = (uint)Math.Ceiling((double)output.Length / 2048) - 1;
+                                    uint cSizeSectors = (uint) Math.Ceiling((double) output.Length/2048) - 1;
                                     if (output.LongLength > int.MaxValue)
                                     {
                                         throw new NotSupportedException(
@@ -184,7 +232,7 @@ namespace KH1_Patch_Maker
                                         throw new NotSupportedException(
                                             "Compressed data size hit 0x1000 bit limitation (IDX limitation)");
                                     }
-                                    cSize = (uint)output.Length;
+                                    cSize = (uint) output.Length;
                                     filedata.Write(output, 0, output.Length);
                                 }
                                 catch (NotCompressableException e)
@@ -195,7 +243,7 @@ namespace KH1_Patch_Maker
                                     if (Program.GetYesNoInput())
                                     {
                                         file.IsCompressed = false;
-                                        cSize = (uint)file.Data.Length;
+                                        cSize = (uint) file.Data.Length;
                                         file.Data.Position = 0; //Ensure at beginning
                                         file.Data.CopyTo(filedata);
                                     }
@@ -208,12 +256,12 @@ namespace KH1_Patch_Maker
                             else
                             {
                                 Console.WriteLine("Adding {0}", file.name ?? file.Hash.ToString("X8"));
-                                cSize = (uint)file.Data.Length;
+                                cSize = (uint) file.Data.Length;
                                 file.Data.Position = 0; //Ensure at beginning
                                 file.Data.CopyTo(filedata);
                             }
                             if (!file.IsCompressed &&
-                                (((uint)Math.Ceiling((double)cSize / 2048) - 1) & 0x1000u) == 0x1000u)
+                                (((uint) Math.Ceiling((double) cSize/2048) - 1) & 0x1000u) == 0x1000u)
                             {
                                 ISOTP.WriteWarning(
                                     "Data size hit 0x1000 bit limitation, but this file may be OK if it's streamed.");
@@ -221,27 +269,28 @@ namespace KH1_Patch_Maker
                             bw.Write(i);
                             i += cSize;
                             bw.Write(cSize);
+                            bw.Write((uint) file.Data.Length);
                             bw.Write(file.ParentHash);
-                            bw.Write((uint)0);
-                            bw.Write((uint)(file.IsCompressed ? 1 : 0));
+                            bw.Write((uint) 0);
+                            bw.Write((uint) (file.IsCompressed ? 1 : 0));
                         }
-                        bw.Write((uint)(file.IsNewFile ? 1 : 0)); //Custom
+                        bw.Write((uint) (file.IsNewFile ? 1 : 0)); //Custom
                         //Padding
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
-                        bw.Write((uint)0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
+                        bw.Write((uint) 0);
                     }
                     filedata.Position = 0; //Ensure at beginning
                     filedata.CopyTo(stream);
@@ -262,7 +311,7 @@ namespace KH1_Patch_Maker
                     WriteDecrypted(ms);
                     data = ms.ToArray();
                 }
-                PatchManager.NGYXor(data);
+                KH1FM_Toolkit.PatchManager.NGYXor(data);
                 stream.Write(data, 0, data.Length);
         }
 
@@ -307,11 +356,11 @@ namespace KH1_Patch_Maker
 
     internal class Program
     {
-        //Define a bool who's define if the Xeeynamo's encryption is used. She's false until the command -xeey is used
-        public static bool DoXeey = false;
         public static bool NewFormat = true;
         public static bool Compression = false;
         public static bool hvs = false;
+        public static bool uselog = false;
+        public static System.IO.StreamReader logfile;
 
         private static DateTime RetrieveLinkerTimestamp()
         {
@@ -344,7 +393,8 @@ namespace KH1_Patch_Maker
 
         private static uint GetFileAsInput(out string name, out bool blank)
         {
-            string inp = Console.ReadLine().Replace("\"", "").Trim();
+            string inp;
+            if (!uselog) { inp = Console.ReadLine().Replace("\"", "").Trim(); } else { inp = logfile.ReadLine().Replace("\"", "").Trim(); }
             uint hash;
             name = "";
             if (inp.Length == 0)
@@ -357,7 +407,7 @@ namespace KH1_Patch_Maker
             {
                 if (uint.TryParse(inp.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hash))
                 {
-                    name = HashList.NameFromHash(hash);
+                    name = KH1FM_Toolkit.HashList.NameFromHash(hash);
                 }
                 else
                 {
@@ -367,11 +417,11 @@ namespace KH1_Patch_Maker
             }
             else
             {
-                hash = PatchManager.calcHash(inp);
+                hash = KH1FM_Toolkit.PatchManager.calcHash(inp);
                 //Check hashpairs anyway, and warn if something unexpected returns
                 if (!hvs)
                 {
-                    if (!HashList.pairs.TryGetValue(hash, out name))
+                    if (!KH1FM_Toolkit.HashList.pairs.TryGetValue(hash, out name))
                     {
                         Console.WriteLine(" Warning: Filename not found into the Hashlist.");
                     }
@@ -396,7 +446,9 @@ namespace KH1_Patch_Maker
             int cL = Console.CursorLeft, cT = Console.CursorTop;
             do
             {
-                string inp = Console.ReadLine();
+                string inp;
+                if (!uselog) {inp = Console.ReadLine(); } else {inp = logfile.ReadLine(); }
+                
                 if (inp == "Y" || inp == "y")
                 {
                     return true;
@@ -414,8 +466,8 @@ namespace KH1_Patch_Maker
         {
             bool log = false;
 
-            Console.Title = KH1ISOReader.program.ProductName + " " + KH1ISOReader.program.FileVersion + " [" +
-                            KH1ISOReader.program.CompanyName + "]";
+            Console.Title = KH1FM_Toolkit.KH1ISOReader.program.ProductName + " " + KH1FM_Toolkit.KH1ISOReader.program.FileVersion + " [" +
+                            KH1FM_Toolkit.KH1ISOReader.program.CompanyName + "]";
             var patch = new PatchFile();
             bool encrypt = true,
                 batch = false,
@@ -425,14 +477,11 @@ namespace KH1_Patch_Maker
                 creditSet = false,
                 otherSet = false;
             string output = "output.kh1patch";
+            string logtouse = "none";
             for (int i = 0; i < args.Length; ++i)
             {
                 switch (args[i].ToLowerInvariant())
                 {
-                    case "-xeeynamo":
-                        DoXeey = true;
-                        ISOTP.WriteWarning("Using Xeeynamo's encryption!(DESTRUCTIVE METHOD)");
-                        break;
                     case "-batch":
                         batch = true;
                         break;
@@ -469,6 +518,10 @@ namespace KH1_Patch_Maker
                         patch.OtherInfo = args[++i];
                         otherSet = true;
                         break;
+                    case "-uselog":
+                        logtouse = args[++i];
+                        uselog = true;
+                        break;
                     case "-changelog":
                         patch.AddChange(args[++i]);
                         break;
@@ -483,9 +536,9 @@ namespace KH1_Patch_Maker
                         break;
                     case "-output":
                         output = args[++i];
-                        if (!output.EndsWith(".kh2patch", StringComparison.InvariantCultureIgnoreCase))
+                        if (!output.EndsWith(".kh1patch", StringComparison.InvariantCultureIgnoreCase))
                         {
-                            output += ".kh2patch";
+                            output += ".kh1patch";
                         }
                         break;
                 }
@@ -503,8 +556,8 @@ namespace KH1_Patch_Maker
             {
                 Console.ForegroundColor = ConsoleColor.Gray;
                 DateTime builddate = RetrieveLinkerTimestamp();
-                Console.Write("{0}\nBuild Date: {2}\nVersion {1}", KH1ISOReader.program.ProductName,
-                    KH1ISOReader.program.FileVersion, builddate);
+                Console.Write("{0}\nBuild Date: {2}\nVersion {1}", KH1FM_Toolkit.KH1ISOReader.program.ProductName,
+                    KH1FM_Toolkit.KH1ISOReader.program.FileVersion, builddate);
                 Console.ResetColor();
 #if DEBUG
                 Console.ForegroundColor = ConsoleColor.Red;
@@ -515,11 +568,10 @@ namespace KH1_Patch_Maker
 #endif
                 Console.ForegroundColor = ConsoleColor.DarkMagenta;
                 Console.Write("\nProgrammed by {0}\nhttp://www.govanify.blogspot.fr\nhttp://www.govanify.x10host.com",
-                    KH1ISOReader.program.CompanyName);
+                    KH1FM_Toolkit.KH1ISOReader.program.CompanyName);
                 Console.ForegroundColor = ConsoleColor.Gray;
                 Console.Write(
-                    "\n\nThis tool is able to create patches for the software KH1FM_Toolkit.\nHe can add files using the internal compression of the game \nKingdom Hearts 1(Final Mix), relink files to their idx, recreate\nthe iso without size limits and without corruption.\nThis patch system is the best ever made for this game atm.\n");
-                HashList.loadHashPairs(printInfo: true);
+                    "\n\nThis tool is able to create patches for the software KH1FM_Toolkit.\nIt can add files using the internal compression of the game \nKingdom Hearts 1(Final Mix), relink files to others, recreate\nthe iso without size limits and without corruption.\nThis patch system is the best ever made for this game atm.\n");
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.Write("\nPress enter to run using the file:");
                 Console.ResetColor();
@@ -530,17 +582,29 @@ namespace KH1_Patch_Maker
                     Console.ReadLine();
                 }
             }
+            if (uselog) {logfile = new System.IO.StreamReader(logtouse);}
+            KH1FM_Toolkit.HashList.loadHashPairs(printInfo: true);
             if (!authorSet)
             {
                 Console.Write("Enter author's name: ");
-                patch.Author = Console.ReadLine().Trim();
+                if (!uselog) { patch.Author = Console.ReadLine().Trim(); } else { patch.Author = logfile.ReadLine().Trim(); }
             }
             if (!verSet)
             {
                 Console.Write("Enter revision number: ");
-                while (!uint.TryParse(Console.ReadLine().Trim(), out patch.Version))
+                if (!uselog)
                 {
-                    ISOTP.WriteWarning("\nInvalid number! ");
+                    while (!uint.TryParse(Console.ReadLine().Trim(), out patch.Version))
+                    {
+                        ISOTP.WriteWarning("\nInvalid number! ");
+                    }
+                }
+                else
+                {
+                    while (!uint.TryParse(logfile.ReadLine().Trim(), out patch.Version))
+                    {
+                        ISOTP.WriteWarning("\nInvalid number! ");
+                    }
                 }
             }
             if (!changeSet)
@@ -548,7 +612,8 @@ namespace KH1_Patch_Maker
                 Console.WriteLine("Enter changelog lines here (leave blank to continue):");
                 do
                 {
-                    string inp = Console.ReadLine().Trim();
+                    string inp;
+                    if (!uselog) { inp = Console.ReadLine(); } else { inp = logfile.ReadLine(); }
                     if (inp.Length == 0)
                     {
                         break;
@@ -561,7 +626,8 @@ namespace KH1_Patch_Maker
                 Console.WriteLine("Enter credits here (leave blank to continue):");
                 do
                 {
-                    string inp = Console.ReadLine().Trim();
+                    string inp;
+                    if (!uselog) { inp = Console.ReadLine(); } else { inp = logfile.ReadLine(); }
                     if (inp.Length == 0)
                     {
                         break;
@@ -572,10 +638,30 @@ namespace KH1_Patch_Maker
             if (!otherSet)
             {
                 Console.Write("Other information (leave blank to continue): ");
-                patch.OtherInfo = Console.ReadLine().Trim();
+                string inp2 = "";
+                bool flag = false;
+                do
+                {
+                    string inp;
+                    if (!uselog) { inp = Console.ReadLine(); } else { inp = logfile.ReadLine(); }
+                    if (inp.Length == 0)
+                    {
+                        break;
+                    }
+                    if (flag)
+                    {
+                        inp2 += "\n" + inp;
+                    }
+                    else
+                    {
+                        inp2 += inp;
+                    }
+                    flag = true;
+                } while (true);
+                patch.OtherInfo = inp2;
             }
 #if DEBUG
-            Console.WriteLine("Filenames may be formatted as text (al00_01.bin) or hash (0x0075a93d).");
+            Console.WriteLine("Filenames may be formatted as text (al.wdt) or hash (0x0004f44b).");
 #endif
             do
             {
@@ -590,7 +676,7 @@ namespace KH1_Patch_Maker
                 }
                 Console.WriteLine("  Using \"{0}\" for {1:X8}", name, file.Hash);
                 //Relink
-                Console.Write("Relink to this filename(ex: 000al.idx) [Blank for none]: ");
+                Console.Write("Relink to this filename(ex: al00_07.img) [Blank for none]: ");
                 file.Relink = GetFileHashAsInput(out rel);
                 if (file.Relink == 0)
                 {
@@ -631,7 +717,7 @@ namespace KH1_Patch_Maker
                 }
                 else if (rel.Equals("ISO", StringComparison.InvariantCultureIgnoreCase))
                 {
-                    file.ParentHash = 1;
+                    file.ParentHash = 2;
                 }
                 else
                 {
@@ -664,6 +750,7 @@ namespace KH1_Patch_Maker
                     {
                         patch.WriteDecrypted(fs);
                     }
+                    if (batch) {Environment.Exit(0);}
                 }
             }
             catch (Exception e)

@@ -92,9 +92,7 @@ namespace KH1FM_Toolkit
             {
                 throw new InvalidDataException("Failed to find data or IDX offsets");
             }
-            Console.WriteLine(
-                "BOOT2 was found at the offset {0} in the iso\nIDX was found at the offset {1} in the iso with {2} as size",
-                dataOffset, idxOffset, idxSize);
+            //Console.WriteLine("BOOT2 was found at the offset {0} in the iso\nIDX was found at the offset {1} in the iso with {2} as size",dataOffset, idxOffset, idxSize);
             parseIDX();
         }
 
@@ -324,7 +322,7 @@ namespace KH1FM_Toolkit
                 {
                     try
                     {
-                        File.Delete(iso.Name);
+                     //   File.Delete(iso.Name);
                         Console.ForegroundColor = ConsoleColor.Red;
                         Console.WriteLine("ISO was never finalized, deleting incomplete file!");
                         Console.ResetColor();
@@ -635,18 +633,18 @@ namespace KH1FM_Toolkit
             {
                 throw new ObjectDisposedException("ISO has been finalized");
             }
-            if (idxOffset == 0)
+            else if (idxOffset == 0)
             {
                 throw new NotSupportedException("No IDX to finalize");
             }
-            if ((idxEntries.Count + idxRelinks.Count)*16 > idxSize)
+            else if ((idxEntries.Count + idxRelinks.Count)*16 > idxSize)
             {
                 throw new NotSupportedException("Trying to write more entries then space was allocated for");
             }
             // Add delayed relinks
             foreach (var item in idxRelinks)
             {
-                IDXEntry t = idxEntries.Find(a => a.hash == item.Value);
+                IDXEntry t = idxEntries.Find((IDXEntry a) => a.hash == item.Value);
                 if (t.hash == item.Value)
                 {
                     idxEntries.Add(new IDXEntry(item.Key, t.flags, t.LBA, t.size));
@@ -749,7 +747,8 @@ namespace KH1FM_Toolkit
             string oextHead)
         {
             int number = 1;
-            Console.WriteLine("Adding header using {0} source", output.writeHeader(oextHead) ? "external" : "internal");//TODO: Delete this Console.WriteLine
+            output.writeHeader(oextHead);//Let's copy the header
+            //Console.WriteLine("Adding header using {0} source",  ? "external" : "internal");//TODO: Delete this Console.WriteLine
             for (int i = 0, idxC = input.idxEntries.Count; i < idxC; ++i)
             {
                 IDXEntry entry = input.idxEntries[i];
@@ -757,6 +756,7 @@ namespace KH1FM_Toolkit
                 {
                     continue;
                 } //kingdom.img
+
                 if (entry.hash == 0x0393eba4) //kingdom.idx
                 {
                     Console.WriteLine("[KINGDOM: {0}/{1}]\tKINGDOM.IDX", number, input.idxEntries.Count - 1);
@@ -770,11 +770,10 @@ namespace KH1FM_Toolkit
                 UInt32 flags = 0;
                 PatchManager.Patch patch;
                 Stream s = null;
+                uint h = 0;
                 // Could make sure the parents match perfectly, but there's only 1 of every name anyway.
                 // So I'll settle for just making sure the file isn't made for the ISO.
-                if (Patches.patches.TryGetValue(entry.hash, out patch) && /*patch.Parent == parenthash*/
-                    !patch.IsinISO)
-                {s = patch.Stream;}
+                if (Patches.patches.TryGetValue(entry.hash, out patch) && /*patch.Parent == parenthash*/!patch.IsinISO) {s = patch.Stream; h = patch.Hash; }
                     string name;
                     if (!HashList.pairs.TryGetValue(entry.hash, out name))
                     {
@@ -782,17 +781,23 @@ namespace KH1FM_Toolkit
                     }
                     if (s == null)
                     {
-                        entry.flags = flags;
-                        if (flags != 0)
+                    flags = entry.flags;//FLAGS NEEDS TO BE OR 0 IF NOTHING, OR 1 IF COMPRESSED, OR THE NAME TO RELINK TO IF IT NEEDS TO
+
+                    if (h != 0)
+                    {
+                        if (patch.Compressed) { flags = 1; }
+                        else if (patch.IsRelink) { flags = patch.Relink; }
+                    }
+
+                    if (flags > 1)
                         {
-                            Console.WriteLine("[KINGDOM: {0}/{1}]\t{2}\tRelinking...", number, input.idxEntries.Count - 1,
-                                name); //-1 'cause of the file KINGDOM.IMG
+                            Console.WriteLine("[KINGDOM: {0}/{1}]\t{2}\tRelinking...", number, input.idxEntries.Count - 1, name); //-1 'cause of the file KINGDOM.IMG
                             number++;
-                            if (!HashList.pairs.TryGetValue(flags, out name))
+                            /*if (!HashList.pairs.TryGetValue(flags, out name))
                             {
                                 name = String.Format("@noname/{0:x8}.bin", flags);
                             }
-                            Console.WriteLine("{0}", name);
+                            Console.WriteLine("{0}", name);*///Err...what is this crappy code? No but srsly
                             output.addRelink(entry.hash, flags);
                         }
                         else
@@ -805,30 +810,9 @@ namespace KH1FM_Toolkit
                     }
                     else
                     {
-                        if (patch.Compressed) {flags = 1;}
-                        Console.WriteLine("[KINGDOM: {0}/{1}]\t{2}\tPatching...", number, input.idxEntries.Count - 1,
-                            name); //-1 'cause of the file KINGDOM.IMG
+                        Console.WriteLine("[KINGDOM: {0}/{1}]\t{2}\tPatching...", number, input.idxEntries.Count - 1, name); //-1 'cause of the file KINGDOM.IMG
                         number++;
-                        if (flags == 0 && ((ocompress && (entry.flags & 0x01) == 1) || entry.hash == 0x0000171d))
-                            //Older versions + the fallback method find the IDX via compressed pi00_04.bin entry
-                        {
-                            var bytes = new byte[s.Length];
-                            s.Read(bytes, 0, (int) s.Length);
-                            try
-                            {
-                                bytes = KH1Compressor.compress(bytes);
-                                flags |= 1;
-                            }
-                            catch (NotCompressableException e)
-                            {
-                                Console.WriteLine("  Cannot compress file: {0}", e.Message);
-                            }
-                            output.writeBytes(bytes, entry.hash, flags);
-                        }
-                        else
-                        {
                             output.importFile(s, entry.hash, flags);
-                        }
                     }
             }
             output.finalize();
@@ -1069,13 +1053,13 @@ namespace KH1FM_Toolkit
                             oupdateHeads = false;
                             break;
                         case "-externalhead":
-#endif
                             if (++i < argc && (oextHead = args[i]).Length != 0)
                             {
                                 break;
                             }
                             oextHead = "KH1ISOMake-head.bin";
                             break;
+#endif
                         case "-patchmaker":
                             KH1_Patch_Maker.Program.Mainp(args);
                             break;
@@ -1098,7 +1082,6 @@ namespace KH1FM_Toolkit
                 #endregion
 
                 #region Description
-
                 using (var files = new PatchManager())
                 {
                     if (iso.Length == 0)
@@ -1109,16 +1092,6 @@ namespace KH1FM_Toolkit
                     DateTime Builddate = RetrieveLinkerTimestamp();
                     Console.Write("{0}\nBuild Date: {2}\nVersion {1}", KH1ISOReader.program.ProductName,
                         KH1ISOReader.program.FileVersion, Builddate);
-                    string Platform;
-                    if (IntPtr.Size == 8)
-                    {
-                        Platform = "x64";
-                    }
-                    else
-                    {
-                        Platform = "x86";
-                    }
-                    Console.Write("\n{0} build", Platform);
                     Console.ResetColor();
 #if DEBUG
                     Console.ForegroundColor = ConsoleColor.Red;
@@ -1130,7 +1103,7 @@ namespace KH1FM_Toolkit
 
                     Console.ForegroundColor = ConsoleColor.DarkMagenta;
                     Console.Write(
-                        "\nProgrammed by {0}\nhttp://www.govanify.blogspot.fr\nhttp://www.govanify.x10host.com",
+                        "\nProgrammed by {0}\nhttp://www.govanify.com\nhttp://www.twitter.com/GovanifY",
                         KH1ISOReader.program.CompanyName);
                     Console.ForegroundColor = ConsoleColor.Gray;
                     if (extract)
@@ -1160,39 +1133,44 @@ namespace KH1FM_Toolkit
                         }
                         else
                         {
-                            try
+                            if (Patches.patches.Count == 0)
                             {
-                                using (var output = new KH1ISOWriter(NewIso, input, oupdateHeads))
-                                {
-                                    PatchISO(input, output, files, ocompress, oextHead);
-                                }
+                                WriteWarning("No patches loaded!");
                             }
-                            catch (Exception)
+                            else
                             {
-                                //Delete the new "incomplete" iso
-                                File.Delete(NewIso);
-                                throw;
+                                try
+                                {
+                                    using (var output = new KH1ISOWriter(NewIso, input, oupdateHeads))
+                                    {
+                                        PatchISO(input, output, files, ocompress, oextHead);
+                                    }
+                                }
+                                catch (Exception)
+                                {
+                                    //Delete the new "incomplete" iso
+                                    File.Delete(NewIso);
+                                    throw;
+                                }
                             }
                         }
                     }
                 }
             }
+            catch (FileNotFoundException e)
+            {
+                WriteWarning("Failed to open file: " + e.Message);
+            }
             catch (Exception e)
             {
-                /*// Disable the close handler
-                NativeMethods.SetConsoleCtrlHandler(killHandler, false);
-
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("A fatal error has occured: {0}", e.Message);
-                Console.ResetColor();
-                Console.Write("Press enter to exit or \"debug\" for more information... ");
-                if (killReceived || (!obatch && Console.ReadLine().ToLower() != "debug") ) { return; }
-                Console.WriteLine("\nType: {0}\n{1}\n", e.GetType(), e.StackTrace);
+                WriteWarning(
+                    "An error has occured when trying to open your iso:\n{1}: {0}\n{2}",
+                    e.Message, e.GetType().FullName, e.StackTrace);
             }
-            if (!obatch && !killReceived)
+            Patches.Dispose();
+            if (!obatch)
             {
-                Console.Write("Press enter to exit..."); Console.ReadLine();*/
-                throw;
+                Console.Write("Press enter to exit..."); Console.ReadLine();
             }
         }
     }

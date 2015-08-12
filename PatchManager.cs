@@ -157,7 +157,7 @@ namespace KH1FM_Toolkit
         {
             using (var br = new BinaryStream(ms, Encoding.ASCII, leaveOpen: true))
             {
-                if (br.ReadUInt32() != 0x5031484B)
+                if (br.ReadUInt32() != 0x5031484b)
                 {
                     br.Close();
                     ms.Close();
@@ -210,6 +210,7 @@ namespace KH1FM_Toolkit
                     author = br.ReadCString();
                     if (author.Length != 0)
                     {
+                        Console.ResetColor();
                         Console.WriteLine("Other information:\r\n");
                         Console.ForegroundColor = ConsoleColor.Green;
                         Console.WriteLine("{0}", author);
@@ -219,7 +220,7 @@ namespace KH1FM_Toolkit
                 catch (Exception e)
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error reading kh2patch header: {0}: {1}\r\nAttempting to continue files...",
+                    Console.WriteLine("Error reading kh1patch header: {0}: {1}\r\nAttempting to continue files...",
                         e.GetType(), e.Message);
                     Console.ResetColor();
                 }
@@ -233,6 +234,7 @@ namespace KH1FM_Toolkit
                     nPatch.Hash = br.ReadUInt32();
                     oaAuther = br.ReadUInt32();
                     nPatch.CompressedSize = br.ReadUInt32();
+                    nPatch.UncompressedSize = br.ReadUInt32();
                     nPatch.Parent = br.ReadUInt32();
                     nPatch.Relink = br.ReadUInt32();
                     nPatch.Compressed = br.ReadUInt32() != 0;
@@ -260,7 +262,7 @@ namespace KH1FM_Toolkit
                     }
                     patches.Add(nPatch.Hash, nPatch);
                     //Global checks
-                    if (!KINGDOMChanged && nPatch.IsInKINGDOM)
+                    if (!KINGDOMChanged && nPatch.IsInKINGDOM || nPatch.IsInKINGDOM)
                     {
                         KINGDOMChanged = true;
                     }
@@ -326,6 +328,7 @@ namespace KH1FM_Toolkit
         {
             public bool Compressed;
             public uint CompressedSize;
+            public uint UncompressedSize;
             public uint Hash;
             public bool IsNew;
             public uint Parent;
